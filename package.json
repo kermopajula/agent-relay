@@ -1,0 +1,23 @@
+{
+  "name": "grok-bot-claude-bridge",
+  "version": "0.1.0",
+  "description": "Throwaway test connector: checks whether Grok Bot can use a custom MCP connector and wait on long tasks.",
+  "scripts": {
+    "dev": "convex dev",
+    "deploy": "convex deploy",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p convex",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "convex": "^1.46.0"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "convex-test": "^0.0.61",
+    "typescript": "~5.9",
+    "vitest": "^5.0.3"
+  },
+  "private": true,
+  "type": "module"
+}

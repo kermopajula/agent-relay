@@ -1,149 +1,165 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { callTool, setup, type TestConvex } from "./test.helpers";
+import type { Doc } from "./_generated/dataModel";
+import { installFakeRoutineApi, type FakeRoutineApi } from "./fakeRoutineApi.helpers";
+import { addProject, allTasks, callTool, setup, type TestConvex } from "./test.helpers";
 import { clock } from "./toolRunner";
 
 const START = new Date("2026-10-11T10:00:00Z").getTime();
-const MINUTE = 60_000;
 const sleeps: number[] = [];
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.useRealTimers();
-  vi.unstubAllEnvs();
-});
+let api: FakeRoutineApi;
+// Runs once per fake sleep, so a test can change the task in the middle of a wait.
+let onSleep: (count: number) => Promise<void> = async () => {};
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(START);
   sleeps.length = 0;
+  onSleep = async () => {};
+  api = installFakeRoutineApi();
   vi.spyOn(clock, "sleep").mockImplementation(async (ms) => {
     sleeps.push(ms);
     vi.advanceTimersByTime(ms);
+    await onSleep(sleeps.length);
   });
 });
 
-async function tasks(t: TestConvex) {
-  return t.run((ctx) => ctx.db.query("tasks").collect());
+afterEach(() => {
+  expect(api.unexpected).toEqual([]);
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
+
+async function sendOne(t: TestConvex, request = "fix the login crash") {
+  await addProject(t, api, "begin-mobile");
+  await callTool(t, "send_task", { request });
+  const [task] = await allTasks(t);
+  if (!task) throw new Error("no task");
+  return task;
 }
 
-describe("send_to_claude", () => {
-  test("uses the duration named in the task text", async () => {
-    const t = setup();
-    const ten = await callTool(t, "send_to_claude", { task: "Run a 10 minute test task" });
-    const thirty = await callTool(t, "send_to_claude", { task: "run a thirty minute test" });
-    expect(ten.text).toContain("Started Test task 1. It will take about 10 minutes.");
-    expect(ten.text).toContain('call wait_for_task with name "Test task 1"');
-    expect(thirty.text).toContain("about 30 minutes");
-    const stored = await tasks(t);
-    expect(stored.map((task) => task.name)).toEqual(["Test task 1 (10 min)", "Test task 2 (30 min)"]);
-    expect(stored[0]?.dueAt).toBe(START + 10 * MINUTE);
-  });
+async function patchTask(t: TestConvex, task: Doc<"tasks">, fields: Partial<Doc<"tasks">>) {
+  await t.run((ctx) => ctx.db.patch("tasks", task._id, fields));
+}
 
-  test("cycles 2, 10, 30 minutes when the text names no duration", async () => {
-    const t = setup();
-    for (let i = 0; i < 4; i++) await callTool(t, "send_to_claude", { task: "do the thing" });
-    expect((await tasks(t)).map((task) => task.durationMinutes)).toEqual([2, 10, 30, 2]);
-  });
-
-  test("an empty task is a tool error, not a new task", async () => {
-    const t = setup();
-    const result = await callTool(t, "send_to_claude", { task: "  " });
-    expect(result.isError).toBe(true);
-    expect(await tasks(t)).toHaveLength(0);
-  });
-});
-
-describe("scheduler", () => {
-  test("marks the task done at its due time even if nobody polls", async () => {
-    const t = setup();
-    await callTool(t, "send_to_claude", { task: "2 minute test" });
-    expect((await tasks(t))[0]?.status).toBe("running");
-
-    vi.advanceTimersByTime(2 * MINUTE);
-    await t.finishInProgressScheduledFunctions();
-
-    const [task] = await tasks(t);
-    expect(task?.status).toBe("done");
-    expect(task?.doneAt).toBe(START + 2 * MINUTE);
-    expect(task?.deliveredAt).toBeUndefined();
-  });
-});
+const SENT = "new Begin Mobile task, sent 10:00";
 
 describe("wait_for_task", () => {
-  test("holds for WAIT_SECONDS and then reports the time left", async () => {
+  test("polls every two seconds for WAIT_SECONDS, then says it is still running", async () => {
     const t = setup();
-    await callTool(t, "send_to_claude", { task: "10 minute test" });
-
-    const result = await callTool(t, "wait_for_task", { name: "Test task 1" });
-
+    await sendOne(t);
+    const result = await callTool(t, "wait_for_task", { name: SENT });
     expect(result.text).toBe(
-      'Test task 1 is still running, about 10 minutes left. Call wait_for_task again with name "Test task 1" to keep waiting.',
+      `${SENT} is sent. Begin Mobile has not checked in yet.\n` +
+        `(For the assistant: call wait_for_task again with name "${SENT}" to keep waiting.)`,
     );
-    expect(sleeps).toEqual([50_000]);
+    expect(sleeps).toHaveLength(25);
+    expect(sleeps.every((ms) => ms === 2_000)).toBe(true);
   });
 
-  test("returns the final result as soon as the task finishes inside the wait", async () => {
+  test("returns as soon as the task is done, with the summary and PR link", async () => {
     const t = setup();
-    await callTool(t, "send_to_claude", { task: "2 minute test" });
-    vi.setSystemTime(START + 2 * MINUTE - 20_000);
-
-    const result = await callTool(t, "wait_for_task", { name: "last" });
-
-    expect(result.text).toBe("Test task 1 is done. It took 2 minutes.");
-    expect(sleeps).toEqual([20_000]);
-    const [task] = await tasks(t);
-    expect(task?.deliveredAt).toBe(START + 2 * MINUTE);
+    const task = await sendOne(t);
+    onSleep = async (count) => {
+      if (count === 3) {
+        await patchTask(t, task, {
+          name: "Fix login crash",
+          status: "done",
+          summary: "Fixed the login crash. Draft PR 412 is ready.",
+          prUrl: "https://github.com/acme/app/pull/412",
+          finalAt: Date.now(),
+        });
+      }
+    };
+    const result = await callTool(t, "wait_for_task", { name: SENT });
+    expect(result.text).toBe(
+      "Begin Mobile finished Fix login crash. Fixed the login crash. Draft PR 412 is ready.\n" +
+        "Pull request: https://github.com/acme/app/pull/412",
+    );
+    expect(sleeps).toEqual([2_000, 2_000, 2_000]);
+    expect((await allTasks(t))[0]?.deliveredAt).toBe(START + 6_000);
   });
 
-  test("returns at once when the task is already done", async () => {
+  test("a needs_input result includes the question and how to answer it", async () => {
     const t = setup();
-    await callTool(t, "send_to_claude", { task: "2 minute test" });
-    vi.setSystemTime(START + 5 * MINUTE);
-    const result = await callTool(t, "wait_for_task", { name: "test task 1" });
-    expect(result.text).toBe("Test task 1 is done. It took 2 minutes.");
+    const task = await sendOne(t);
+    await patchTask(t, task, {
+      name: "Release 2.4.0",
+      status: "needs_input",
+      question: "Publish 2.4.0 to the App Store now?",
+    });
+    const result = await callTool(t, "wait_for_task", { name: "release" });
+    expect(result.text).toContain("Begin Mobile needs your answer on Release 2.4.0. Publish 2.4.0 to the App Store now?");
+    expect(result.text).toContain('call send_task with follow_up_of "Release 2.4.0"');
     expect(sleeps).toEqual([]);
   });
 
-  test("WAIT_SECONDS=0 makes it answer immediately", async () => {
+  test("a running task reports the time of its last report", async () => {
     const t = setup({ WAIT_SECONDS: "0" });
-    await callTool(t, "send_to_claude", { task: "30 minute test" });
-    const result = await callTool(t, "wait_for_task", { name: "" });
-    expect(result.text).toContain("about 30 minutes left");
+    const task = await sendOne(t);
+    await patchTask(t, task, { name: "Fix login crash", status: "running", lastReportAt: START + 60_000 });
+    const result = await callTool(t, "wait_for_task", { name: "login crash" });
+    expect(result.text).toContain("Fix login crash is still running. Last report at 10:01.");
+    expect(result.text).toContain('call wait_for_task again with name "Fix login crash"');
+  });
+
+  test("a failed fire is final at once", async () => {
+    const t = setup();
+    await addProject(t, api, "begin-mobile");
+    api.failNext(429);
+    await callTool(t, "send_task", { request: "sweep" });
+    const result = await callTool(t, "wait_for_task", { name: "last" });
+    expect(result.text).toBe("Rate limited by Anthropic; try again later.");
     expect(sleeps).toEqual([]);
   });
 
   test("an unknown name is a tool error that lists recent tasks", async () => {
     const t = setup();
-    await callTool(t, "send_to_claude", { task: "2 minute test" });
-    const result = await callTool(t, "wait_for_task", { name: "task 7" });
+    await sendOne(t);
+    const result = await callTool(t, "wait_for_task", { name: "payroll" });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain("Recent tasks: Test task 1.");
+    expect(result.text).toContain(`Recent tasks: ${SENT}.`);
   });
 });
 
 describe("task_status and list_tasks", () => {
-  test("task_status answers immediately and records delivery once done", async () => {
+  test("task_status answers at once and records delivery of a final result", async () => {
     const t = setup();
-    await callTool(t, "send_to_claude", { task: "10 minute test" });
-    vi.setSystemTime(START + 9 * MINUTE + 30_000);
-    expect((await callTool(t, "task_status", { name: "Test task 1" })).text).toBe(
-      "Test task 1 is still running, less than a minute left.",
+    const task = await sendOne(t);
+    expect((await callTool(t, "task_status", { name: "last" })).text).toBe(
+      `${SENT} is sent. Begin Mobile has not checked in yet.`,
     );
-    vi.setSystemTime(START + 11 * MINUTE);
-    expect((await callTool(t, "task_status", { name: "Test task 1" })).text).toBe(
-      "Test task 1 is done. It took 10 minutes.",
+    await patchTask(t, task, { name: "Fix login crash", status: "failed", summary: "The tests do not build" });
+    vi.setSystemTime(START + 60_000);
+    expect((await callTool(t, "task_status", { name: "last" })).text).toBe(
+      `Begin Mobile could not finish Fix login crash. The tests do not build.\nSession link: ${task.sessionUrl}`,
     );
-    expect((await tasks(t))[0]?.deliveredAt).toBe(START + 11 * MINUTE);
+    expect((await allTasks(t))[0]?.deliveredAt).toBe(START + 60_000);
+    expect(sleeps).toEqual([]);
   });
 
-  test("list_tasks reads one line per task, newest first", async () => {
+  test("list_tasks reads one line per task, newest first, optionally for one project", async () => {
     const t = setup();
-    await callTool(t, "send_to_claude", { task: "2 minute test" });
-    await callTool(t, "send_to_claude", { task: "30 minute test" });
-    vi.setSystemTime(START + 3 * MINUTE);
-    const result = await callTool(t, "list_tasks");
-    expect(result.text).toBe(
-      "Test task 2 (30 min): still running, about 27 minutes left.\nTest task 1 (2 min): done, it took 2 minutes.",
+    await addProject(t, api, "begin-bugs");
+    await addProject(t, api, "begin-mobile");
+    await callTool(t, "send_task", { request: "sweep" });
+    vi.setSystemTime(START + 60_000);
+    await callTool(t, "send_task", { request: "fix it", project: "mobile" });
+    const [, mobile] = await allTasks(t);
+    await patchTask(t, mobile!, { name: "Fix login crash", status: "running" });
+
+    expect((await callTool(t, "list_tasks")).text).toBe(
+      "Fix login crash (Begin Mobile): running.\nnew Begin Bugs task, sent 10:00 (Begin Bugs): sent, no report yet.",
     );
+    expect((await callTool(t, "list_tasks", { project: "bugs" })).text).toBe(
+      "new Begin Bugs task, sent 10:00 (Begin Bugs): sent, no report yet.",
+    );
+    expect((await callTool(t, "list_tasks", { project: "begin" })).text).toContain("could mean Begin Bugs or Begin Mobile");
+  });
+
+  test("list_tasks with no tasks says so", async () => {
+    const t = setup();
+    expect((await callTool(t, "list_tasks")).text).toBe("There are no tasks yet.");
   });
 });

@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { vi } from "vitest";
+import { internal } from "./_generated/api";
+import { fireUrl, type FakeRoutineApi } from "./fakeRoutineApi.helpers";
 import schema from "./schema";
 
 export const modules = import.meta.glob("./**/*.ts");
@@ -32,7 +34,7 @@ export function legacyRequest(method: string, params?: Record<string, unknown>, 
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
-      "User-Agent": "spike-test/1.0",
+      "User-Agent": "relay-test/1.0",
       ...headers,
     },
     body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }),
@@ -65,4 +67,41 @@ export async function callTool(t: TestConvex, name: string, args: Record<string,
   const { status, body } = await post(t, legacyRequest("tools/call", { name, arguments: args }));
   if (status !== 200 || !body.result) throw new Error(`tools/call ${name} failed: ${JSON.stringify(body)}`);
   return { text: body.result.content[0].text as string, isError: body.result.isError as boolean };
+}
+
+export function tokenFor(name: string): string {
+  return `sk-ant-oat01-${name}-token-0123456789`;
+}
+
+export function routineIdFor(name: string): string {
+  return `trig_01${name.replace(/[^a-z0-9]/gi, "").toUpperCase()}`;
+}
+
+/** Adds a project through projects:add and teaches the fake API its token. */
+export async function addProject(
+  t: TestConvex,
+  api: FakeRoutineApi,
+  name: string,
+  extra: { displayName?: string; aliases?: string[]; makeDefault?: boolean } = {},
+) {
+  const routineId = routineIdFor(name);
+  api.allow(routineId, tokenFor(name));
+  return t.action(internal.projects.add, { name, fireUrl: fireUrl(routineId), token: tokenFor(name), ...extra });
+}
+
+export async function allTasks(t: TestConvex) {
+  return t.run((ctx) => ctx.db.query("tasks").collect());
+}
+
+/** Pulls the report secret out of a fire payload. */
+export function secretFrom(text: string): string {
+  const secret = /^Report secret: (\S+)$/m.exec(text)?.[1];
+  if (!secret) throw new Error("No report secret in the payload");
+  return secret;
+}
+
+export function reportUrlFrom(text: string): string {
+  const url = /^Report URL: (\S+)$/m.exec(text)?.[1];
+  if (!url) throw new Error("No report URL in the payload");
+  return url;
 }

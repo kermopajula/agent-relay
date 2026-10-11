@@ -1,49 +1,34 @@
 import { describe, expect, test } from "vitest";
 import { originAllowed, taskTimeoutHours, timeZoneOrUtc, waitSeconds } from "./config";
 import { constantTimeEqual, decryptToken, encryptToken, randomSecret, sha256Hex } from "./crypto";
-import { chooseDuration, parseDuration } from "./duration";
 import { matchProject, matchTask } from "./match";
 import { dedupeName, displayNameFromSlug, provisionalName } from "./names";
 import { parseFireUrl } from "./routineApi";
 import { secretFromPath, secretsMatch } from "./secret";
 import { formatSpan } from "./summary";
 
-describe("parseDuration", () => {
-  test.each([
-    ["run a 2 minute test task", 2],
-    ["Ask Claude to run a 10-minute test", 10],
-    ["30 min please", 30],
-    ["a ten minute job", 10],
-    ["takes half an hour", 30],
-    ["run a 5 minute task", null],
-    ["fix the 2 bugs", null],
-  ])("%s -> %s", (text, expected) => {
-    expect(parseDuration(text)).toBe(expected);
-  });
-
-  test("falls back to the cycle by task number", () => {
-    expect([1, 2, 3, 4, 5].map((n) => chooseDuration("hello", n))).toEqual([2, 10, 30, 2, 10]);
-  });
-});
-
 describe("matchTask", () => {
   const tasks = [
-    { number: 10, name: "Test task 10 (2 min)" },
-    { number: 2, name: "Test task 2 (10 min)" },
-    { number: 1, name: "Test task 1 (2 min)" },
+    { name: "new Begin Mobile task, sent 10:05", sentName: "new Begin Mobile task, sent 10:05" },
+    { name: "Fix login crash", sentName: "new Begin Mobile task, sent 09:00" },
+    { name: "Bug sweep", sentName: "new Begin Bugs task, sent 08:00" },
   ];
+  const pick = (name: string) => matchTask(tasks, name)?.name ?? null;
 
   test.each([
-    ["last", 10],
-    ["", 10],
-    ["Test task 1", 1],
-    ["test task 10 (2 min)", 10],
-    ["task 2", 2],
-    ["#2", 2],
+    ["last", "new Begin Mobile task, sent 10:05"],
+    ["", "new Begin Mobile task, sent 10:05"],
+    ["the last task", "new Begin Mobile task, sent 10:05"],
+    ["Fix login crash", "Fix login crash"],
+    ["fix login", "Fix login crash"],
+    ["login crash", "Fix login crash"],
+    ["the login crash task", "Fix login crash"],
+    ["new Begin Mobile task, sent 09:00", "Fix login crash"],
+    ["the Begin Bugs task", "Bug sweep"],
     ["task 7", null],
-    ["something else", null],
-  ])("%s -> task %s", (name, number) => {
-    expect(matchTask(tasks, name)?.number ?? null).toBe(number);
+    ["payroll", null],
+  ])("%s -> %s", (name, expected) => {
+    expect(pick(name)).toBe(expected);
   });
 });
 

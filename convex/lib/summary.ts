@@ -1,17 +1,32 @@
+import { truncate } from "./http";
+import { isFinalForWait, type TaskStatus } from "./status";
+
 export type SummaryTask = {
   name: string;
-  text: string;
+  projectName: string;
+  request: string;
+  status: TaskStatus;
   createdAt: number;
-  dueAt: number;
+  sessionUrl?: string;
+  finalAt?: number;
   deliveredAt?: number;
+};
+
+export type SummaryEvent = {
+  at: number;
+  status: TaskStatus;
+  source: "relay" | "report" | "timer";
+  note?: string;
 };
 
 export type SummaryCall = {
   at: number;
   durationMs: number;
   httpMethod: string;
+  httpStatus: number;
   rpcMethod?: string;
   tool?: string;
+  args?: string;
   responseSummary: string;
   protocolVersion?: string;
   clientName?: string;
@@ -19,6 +34,7 @@ export type SummaryCall = {
   userAgent?: string;
   finalDelivered?: boolean;
   auth?: "bearer" | "path";
+  endpoint?: "mcp" | "report";
 };
 
 export function formatTime(ms: number, timeZone: string): string {
@@ -47,51 +63,59 @@ export function formatSpan(ms: number): string {
   return `${s}s`;
 }
 
-function relative(ms: number, reference: string): string {
-  return ms >= 0 ? `${formatSpan(ms)} after ${reference}` : `${formatSpan(ms)} before ${reference}`;
+function isReport(call: SummaryCall): boolean {
+  return call.endpoint === "report";
 }
 
-/** `calls` must be oldest first and belong to this task. */
-export function summarizeTask(task: SummaryTask, calls: SummaryCall[], now: number, tz: string): string {
+function deliveryLine(task: SummaryTask, assistantCalls: SummaryCall[], time: (ms: number) => string): string {
+  if (task.deliveredAt !== undefined) {
+    return `  Delivered to assistant: yes, at ${time(task.deliveredAt)}, ${formatSpan(task.deliveredAt - task.createdAt)} after sending.`;
+  }
+  if (!isFinalForWait(task.status)) return "  Delivered to assistant: not yet, the task is not finished.";
+  const last = assistantCalls[assistantCalls.length - 1];
+  const lastEnd = last ? last.at + last.durationMs : task.createdAt;
+  const finalAt = task.finalAt ?? lastEnd;
+  return (
+    `  Delivered to assistant: NO. The assistant stopped checking ${formatSpan(lastEnd - task.createdAt)} after sending, ` +
+    `${formatSpan(finalAt - lastEnd)} before the final status.`
+  );
+}
+
+/** `events` and `calls` must be oldest first and belong to this task. */
+export function summarizeTask(
+  task: SummaryTask,
+  events: SummaryEvent[],
+  calls: SummaryCall[],
+  tz: string,
+): string {
   const time = (ms: number) => formatTime(ms, tz);
-  const finished = now >= task.dueAt;
   const lines = [
-    `${task.name}: created ${time(task.createdAt)}, finishes ${time(task.dueAt)}, ${finished ? "done" : "still running"}.`,
-    `  Task text: "${task.text}"`,
+    `${task.name} [${task.projectName}]: ${task.status}, sent ${time(task.createdAt)}.`,
+    `  Request: "${truncate(task.request.replace(/\s+/g, " "), 160)}"`,
+    `  Session: ${task.sessionUrl ?? "none"}`,
+    "  Status history:",
+    ...events.map((e) => `    ${time(e.at)}  ${e.status.padEnd(15)} ${e.source}${e.note ? `: ${e.note}` : ""}`),
   ];
 
-  const checks = calls.filter((c) => c.tool === "wait_for_task" || c.tool === "task_status");
-  const waits = checks.filter((c) => c.tool === "wait_for_task").length;
-  lines.push(`  Checks: ${checks.length} (wait_for_task ${waits}, task_status ${checks.length - waits})`);
+  const reports = calls.filter(isReport);
+  lines.push(`  Reports: ${reports.length}`);
+  for (const report of reports) {
+    lines.push(`    ${time(report.at)}  HTTP ${report.httpStatus}  ${report.args ?? ""}  ${report.responseSummary}`);
+  }
 
+  const assistantCalls = calls.filter((c) => !isReport(c));
+  const waits = assistantCalls.filter((c) => c.tool === "wait_for_task").length;
+  const statuses = assistantCalls.filter((c) => c.tool === "task_status").length;
+  lines.push(`  Assistant calls: ${assistantCalls.length} (wait_for_task ${waits}, task_status ${statuses})`);
   let previousEnd = task.createdAt;
-  for (const call of calls) {
-    const gap = call.at - previousEnd;
+  for (const call of assistantCalls) {
     const label = (call.tool ?? call.rpcMethod ?? call.httpMethod).padEnd(14);
     lines.push(
-      `  ${time(call.at)}  ${label} gap ${formatSpan(gap).padStart(7)}  held ${formatSpan(call.durationMs).padStart(7)}  ${call.responseSummary}`,
+      `    ${time(call.at)}  ${label} gap ${formatSpan(call.at - previousEnd).padStart(7)}  held ${formatSpan(call.durationMs).padStart(7)}  ${call.responseSummary.replace(/\n/g, " ")}`,
     );
     previousEnd = Math.max(previousEnd, call.at + call.durationMs);
   }
-
-  const last = calls[calls.length - 1];
-  if (last) {
-    lines.push(`  Last call: ${time(last.at)} (${relative(last.at - task.dueAt, "the finish time")}).`);
-  }
-
-  if (task.deliveredAt !== undefined) {
-    lines.push(
-      `  Final result delivered to Grok: yes, at ${time(task.deliveredAt)}, ${formatSpan(task.deliveredAt - task.createdAt)} after creation.`,
-    );
-  } else if (!finished) {
-    lines.push("  Final result delivered to Grok: not yet, the task is still running.");
-  } else {
-    const lastEnd = last ? last.at + last.durationMs : task.createdAt;
-    lines.push(
-      `  Final result delivered to Grok: NO. The client stopped checking ${formatSpan(lastEnd - task.createdAt)} after creation, ` +
-        `${formatSpan(task.dueAt - lastEnd)} before the task finished.`,
-    );
-  }
+  lines.push(deliveryLine(task, assistantCalls, time));
   return lines.join("\n");
 }
 
@@ -99,6 +123,7 @@ export function summarizeTask(task: SummaryTask, calls: SummaryCall[], now: numb
 export function summarizeClients(calls: SummaryCall[]): string {
   const byAgent = new Map<string, { clients: Set<string>; protocols: Set<string>; auths: Set<string> }>();
   for (const call of calls) {
+    if (isReport(call)) continue;
     const agent = call.userAgent ?? "no user agent";
     const entry = byAgent.get(agent) ?? { clients: new Set(), protocols: new Set(), auths: new Set() };
     if (call.auth) entry.auths.add(call.auth);
@@ -117,7 +142,7 @@ export function summarizeClients(calls: SummaryCall[]): string {
 }
 
 export function buildSummary(
-  tasks: { task: SummaryTask; calls: SummaryCall[] }[],
+  tasks: { task: SummaryTask; events: SummaryEvent[]; calls: SummaryCall[] }[],
   recentCalls: SummaryCall[],
   now: number,
   tz: string,
@@ -127,7 +152,7 @@ export function buildSummary(
     summarizeClients(recentCalls),
   ];
   const body = tasks.length
-    ? tasks.map(({ task, calls }) => summarizeTask(task, calls, now, tz))
+    ? tasks.map(({ task, events, calls }) => summarizeTask(task, events, calls, tz))
     : ["No tasks yet."];
   return [...header, "", ...body].join("\n\n").replace(/\n{3,}/g, "\n\n");
 }

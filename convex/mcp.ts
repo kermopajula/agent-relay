@@ -56,6 +56,7 @@ async function record(
     await ctx.runMutation(internal.calls.record, {
       ...log,
       auth,
+      endpoint: "mcp",
       at: started,
       durationMs: Date.now() - started,
       httpMethod: req.method,

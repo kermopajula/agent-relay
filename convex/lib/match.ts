@@ -1,28 +1,28 @@
-type Named = { name: string; number: number };
+type NamedTask = { name: string; sentName: string };
 
-const LATEST_WORDS = new Set(["", "last", "latest", "the last one", "most recent", "recent"]);
-const TASK_NUMBER = /\btask\s*(?:number\s*)?#?\s*(\d+)\b/i;
+// Words around a task name that never name one. With nothing else left, the
+// newest task is meant ("the last one", "my task").
+const TASK_FILLER = new Set(["task", "tasks", "job", "last", "latest", "recent", "most", "one", "newest"]);
+
+function normalize(text: string): string {
+  return text.trim().toLowerCase().replace(/^["']|["'.?!]$/g, "").replace(/\s+/g, " ");
+}
 
 /**
- * Picks a task by spoken name. `tasks` must be newest first.
- * Order: latest keyword, exact name, "task N", prefix, substring.
+ * Picks a task by spoken name. `tasks` must be newest first. A task matches by
+ * its reported name or by the provisional name it had when sent.
+ * Order: newest, exact name, prefix, substring, all spoken words present.
  */
-export function matchTask<T extends Named>(tasks: T[], rawName: string | undefined): T | null {
-  const name = (rawName ?? "").trim().toLowerCase();
-  if (LATEST_WORDS.has(name)) return tasks[0] ?? null;
-
-  const exact = tasks.find((t) => t.name.toLowerCase() === name);
-  if (exact) return exact;
-
-  const numbered = TASK_NUMBER.exec(name) ?? /^#?(\d+)$/.exec(name);
-  if (numbered?.[1]) {
-    const wanted = Number(numbered[1]);
-    return tasks.find((t) => t.number === wanted) ?? null;
-  }
-
+export function matchTask<T extends NamedTask>(tasks: T[], rawName: string | undefined): T | null {
+  const name = normalize(rawName ?? "");
+  const words = spokenTokens(name).filter((w) => !TASK_FILLER.has(w));
+  if (words.length === 0) return tasks[0] ?? null;
+  const names = (t: T) => [normalize(t.name), normalize(t.sentName)];
   return (
-    tasks.find((t) => t.name.toLowerCase().startsWith(name)) ??
-    tasks.find((t) => t.name.toLowerCase().includes(name)) ??
+    tasks.find((t) => names(t).includes(name)) ??
+    tasks.find((t) => names(t).some((n) => n.startsWith(name))) ??
+    tasks.find((t) => names(t).some((n) => n.includes(name))) ??
+    tasks.find((t) => names(t).some((n) => words.every((w) => spokenTokens(n).includes(w)))) ??
     null
   );
 }

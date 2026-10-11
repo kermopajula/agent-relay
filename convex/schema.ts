@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { taskStatusValidator } from "./lib/status";
 
 export default defineSchema({
   projects: defineTable({
@@ -15,16 +16,43 @@ export default defineSchema({
   }).index("by_name", ["name"]),
 
   tasks: defineTable({
-    number: v.number(),
+    projectId: v.id("projects"),
+    // Copied at send time so the log still reads well after a project is removed.
+    projectName: v.string(),
+    projectDisplayName: v.string(),
+    request: v.string(),
+    followUpOf: v.optional(v.id("tasks")),
     name: v.string(),
-    text: v.string(),
-    durationMinutes: v.number(),
+    // The provisional name; it keeps matching after Claude renames the task.
+    sentName: v.string(),
+    nameReported: v.boolean(),
+    status: taskStatusValidator,
     createdAt: v.number(),
-    dueAt: v.number(),
-    status: v.union(v.literal("running"), v.literal("done")),
-    doneAt: v.optional(v.number()),
+    // SHA-256 of the per-task report secret. The secret itself is never stored.
+    reportSecretHash: v.string(),
+    sessionId: v.optional(v.string()),
+    sessionUrl: v.optional(v.string()),
+    firedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+    lastReportAt: v.optional(v.number()),
+    finalAt: v.optional(v.number()),
+    summary: v.optional(v.string()),
+    question: v.optional(v.string()),
+    prUrl: v.optional(v.string()),
+    branch: v.optional(v.string()),
     deliveredAt: v.optional(v.number()),
-  }).index("by_number", ["number"]),
+  })
+    .index("by_name", ["name"])
+    .index("by_sentName", ["sentName"])
+    .index("by_projectId", ["projectId"]),
+
+  taskEvents: defineTable({
+    taskId: v.id("tasks"),
+    at: v.number(),
+    status: taskStatusValidator,
+    source: v.union(v.literal("relay"), v.literal("report"), v.literal("timer")),
+    note: v.optional(v.string()),
+  }).index("by_taskId", ["taskId"]),
 
   calls: defineTable({
     at: v.number(),
@@ -47,5 +75,7 @@ export default defineSchema({
     taskId: v.optional(v.id("tasks")),
     finalDelivered: v.optional(v.boolean()),
     auth: v.optional(v.union(v.literal("bearer"), v.literal("path"))),
+    // Missing on MCP calls logged before reports existed.
+    endpoint: v.optional(v.union(v.literal("mcp"), v.literal("report"))),
   }).index("by_taskId", ["taskId"]),
 });

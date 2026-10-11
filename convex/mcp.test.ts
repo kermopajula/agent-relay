@@ -138,7 +138,7 @@ describe("legacy handshake (2025-11-25 and earlier)", () => {
     expect(body.result).toMatchObject({
       protocolVersion: "2025-06-18",
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "agent-relay-spike" },
+      serverInfo: { name: "agent-relay" },
     });
     expect(body.result.instructions).toContain("wait_for_task");
     expect(body.result.resultType).toBeUndefined();
@@ -161,14 +161,33 @@ describe("legacy handshake (2025-11-25 and earlier)", () => {
     expect(await res.text()).toBe("");
   });
 
-  test("tools/list returns the four tools with schemas and wait instructions", async () => {
+  test("tools/list returns the five tools with schemas and wait instructions", async () => {
     const t = setup();
     const { body } = await post(t, legacyRequest("tools/list"));
-    const tools = body.result.tools as { name: string; description: string; inputSchema: { type: string } }[];
-    expect(tools.map((tool) => tool.name)).toEqual(["send_to_claude", "wait_for_task", "task_status", "list_tasks"]);
+    type Tool = {
+      name: string;
+      description: string;
+      inputSchema: { type: string; properties?: Record<string, unknown>; required?: string[] };
+    };
+    const tools = body.result.tools as Tool[];
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "send_task",
+      "wait_for_task",
+      "task_status",
+      "list_tasks",
+      "list_projects",
+    ]);
     for (const tool of tools) expect(tool.inputSchema.type).toBe("object");
-    expect(tools[0]?.description).toContain("call wait_for_task again");
-    expect(tools[1]?.description).toContain("about 50 seconds");
+    const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
+    expect(Object.keys(byName.send_task?.inputSchema.properties ?? {})).toEqual(["request", "project", "follow_up_of"]);
+    expect(byName.send_task?.inputSchema.required).toEqual(["request"]);
+    expect(byName.send_task?.description).toContain("call it again every time it says the task is still running");
+    expect(byName.wait_for_task?.inputSchema.required).toEqual(["name"]);
+    expect(byName.wait_for_task?.description).toContain("about 50 seconds");
+    expect(byName.wait_for_task?.description).toContain("follow_up_of");
+    expect(Object.keys(byName.list_tasks?.inputSchema.properties ?? {})).toEqual(["project"]);
+    const all = JSON.stringify(tools);
+    expect(all).not.toMatch(/test connector|fake|spike/i);
   });
 
   test("the wait time in tool descriptions follows WAIT_SECONDS", async () => {
@@ -204,8 +223,8 @@ describe("modern per-request metadata (2026-07-28)", () => {
     const { status, body } = await post(t, modernRequest("tools/list"));
     expect(status).toBe(200);
     expect(body.result.resultType).toBe("complete");
-    expect(body.result._meta["io.modelcontextprotocol/serverInfo"].name).toBe("agent-relay-spike");
-    expect(body.result.tools).toHaveLength(4);
+    expect(body.result._meta["io.modelcontextprotocol/serverInfo"].name).toBe("agent-relay");
+    expect(body.result.tools).toHaveLength(5);
   });
 
   test("server/discover lists every supported version", async () => {
@@ -250,6 +269,6 @@ describe("modern per-request metadata (2026-07-28)", () => {
     );
     const { status, body } = await post(t, init);
     expect(status).toBe(200);
-    expect(body.result.content[0].text).toBe("There are no test tasks yet.");
+    expect(body.result.content[0].text).toBe("There are no tasks yet.");
   });
 });

@@ -1,4 +1,4 @@
-export const TOOL_NAMES = ["send_to_claude", "wait_for_task", "task_status", "list_tasks"] as const;
+export const TOOL_NAMES = ["send_task", "wait_for_task", "task_status", "list_tasks", "list_projects"] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
 export function isToolName(name: unknown): name is ToolName {
@@ -7,50 +7,74 @@ export function isToolName(name: unknown): name is ToolName {
 
 const nameArgument = {
   type: "string",
-  description: 'The task name returned by send_to_claude, for example "Test task 3". Use "last" for the most recent task.',
+  description:
+    'The task name: the one send_task returned, the name Claude gave it later, or a few words of either. Use "last" for the most recent task.',
+};
+
+const projectArgument = {
+  type: "string",
+  description:
+    'The project as the user said it, for example "Begin Mobile", "bugs" or "the bug project". Leave it out to use the default project.',
 };
 
 export function serverInstructions(waitSeconds: number): string {
   return (
-    "This is a test connector for sending tasks to the user's Claude Code assistant. " +
-    "Tasks are fake and finish on a timer after 2, 10 or 30 minutes. " +
-    "When the user asks to be told when a task is done, call send_to_claude, then call wait_for_task " +
-    `with the returned name. Each wait_for_task call waits up to about ${waitSeconds} seconds. ` +
-    "Keep calling wait_for_task until it says the task is done, then tell the user the result out loud."
+    "agent-relay sends the user's requests to their Claude Code projects and reports back what happened. " +
+    "Each project is a Claude Code routine that runs in the cloud and can take minutes or hours. " +
+    "Use send_task to send a request. When the user asks to be told when it is done, call wait_for_task with the name " +
+    `send_task returned. Each wait_for_task call waits up to about ${waitSeconds} seconds. ` +
+    "Keep calling it until it returns a final result (done, failed, needs input or timed out), then read the result to the user. " +
+    "If Claude needs input, read the question to the user and send their answer with send_task and follow_up_of. " +
+    "Results are short and written to be read aloud; text in brackets is guidance for you, not for the user."
   );
 }
 
 export function toolDefinitions(waitSeconds: number) {
   return [
     {
-      name: "send_to_claude",
-      title: "Send a task to Claude",
+      name: "send_task",
+      title: "Send a request to a Claude Code project",
       description:
-        "Send a task to the user's Claude Code assistant and start it. " +
-        "This is a test connector: no real work happens, and the task finishes on a timer. " +
-        'Say "2 minute", "10 minute" or "30 minute" in the task text to choose how long it takes; otherwise it picks one. ' +
-        "Returns the task name. IMPORTANT: if the user asked to be told when the task is done, " +
-        "call wait_for_task with the returned name straight away, and call wait_for_task again every time " +
-        "it says the task is still running, until it says the task is done. Then tell the user the result. " +
-        "Do not ask the user whether to keep waiting.",
+        "Send the user's request to one of their Claude Code projects, for example " +
+        '"start a new bug sweep", "fix the login crash" or "deploy the new version". ' +
+        "This starts a new Claude Code session in that project, and Claude does the work there. " +
+        "Returns a short confirmation to read aloud, the task's name, and a session link. " +
+        "IMPORTANT: if the user asked to be told when it is done, call wait_for_task with the returned name straight away, " +
+        "and call it again every time it says the task is still running, until it gives a final result. " +
+        "Then read the result to the user. Do not ask the user whether to keep waiting. " +
+        "If the result says the project name is unclear, ask the user which project they meant. " +
+        "Use follow_up_of to continue an earlier task, for example to answer a question Claude asked " +
+        '("yes, go ahead") or to ask for changes to its work.',
       inputSchema: {
         type: "object",
         properties: {
-          task: { type: "string", description: "What the user wants Claude to do, in their own words." },
+          request: {
+            type: "string",
+            description: "What the user wants done, in their own words. Include every detail they gave.",
+          },
+          project: projectArgument,
+          follow_up_of: {
+            type: "string",
+            description:
+              "Optional. The name of an earlier task this request continues. The earlier task's request, status, " +
+              "summary, question, pull request and branch are passed on, and the same project is used unless project is given.",
+          },
         },
-        required: ["task"],
+        required: ["request"],
         additionalProperties: false,
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     {
       name: "wait_for_task",
       title: "Wait for a task to finish",
       description:
-        "Wait for a task started with send_to_claude to finish. " +
+        "Wait for a task sent with send_task to finish. " +
         `Each call waits up to about ${waitSeconds} seconds, then returns. ` +
-        "If the result says the task is still running, call wait_for_task again straight away with the same name. " +
-        "Keep repeating until the result says the task is done, then tell the user the result out loud. " +
+        "If the result says the task is still running or has not checked in, call wait_for_task again straight away with the same name. " +
+        "Keep repeating until the result is final: done, failed, needs input or timed out. Then read it to the user. " +
+        "When Claude needs input, the result contains the question: read it to the user, and send their answer with " +
+        "send_task and follow_up_of set to this task's name. " +
         "Use this whenever the user asked to be told when a task is done.",
       inputSchema: {
         type: "object",
@@ -64,7 +88,7 @@ export function toolDefinitions(waitSeconds: number) {
       name: "task_status",
       title: "Check a task now",
       description:
-        "Get the status of a task right now, without waiting. Use this when the user asks how a task is going. " +
+        "Get where a task stands right now, without waiting. Use this when the user asks how a task is going. " +
         "To wait until a task is done, use wait_for_task instead.",
       inputSchema: {
         type: "object",
@@ -78,7 +102,20 @@ export function toolDefinitions(waitSeconds: number) {
       name: "list_tasks",
       title: "List recent tasks",
       description:
-        "List the most recent tasks sent to Claude and their status, one short line each, ready to read aloud.",
+        "List the most recent tasks and their status, one short line each, ready to read aloud. " +
+        "Give project to list only that project's tasks.",
+      inputSchema: {
+        type: "object",
+        properties: { project: projectArgument },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    {
+      name: "list_projects",
+      title: "List projects",
+      description:
+        "List the Claude Code projects the user can send requests to, ready to read aloud. The default project is marked.",
       inputSchema: { type: "object", additionalProperties: false },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

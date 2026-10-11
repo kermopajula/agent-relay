@@ -6,6 +6,9 @@ import schema from "./schema";
 export const modules = import.meta.glob("./**/*.ts");
 export const SECRET = "test-secret-0123456789abcdef";
 export const MCP = `/mcp/${SECRET}`;
+// 32 bytes of 0x01, base64. Tests only.
+export const ENCRYPTION_KEY = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+export const SITE_URL = "https://happy-otter-123.convex.site";
 
 export type TestConvex = ReturnType<typeof convexTest>;
 
@@ -13,6 +16,10 @@ export function setup(env: Record<string, string> = {}): TestConvex {
   vi.stubEnv("CONNECTOR_SECRET", SECRET);
   vi.stubEnv("WAIT_SECONDS", "50");
   vi.stubEnv("ALLOWED_ORIGINS", "");
+  vi.stubEnv("TOKEN_ENCRYPTION_KEY", ENCRYPTION_KEY);
+  vi.stubEnv("CONVEX_SITE_URL", SITE_URL);
+  vi.stubEnv("TASK_TIMEOUT_HOURS", "");
+  vi.stubEnv("DISPLAY_TIMEZONE", "");
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
   return convexTest(schema, modules);
 }

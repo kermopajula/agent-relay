@@ -32,6 +32,9 @@ type Env = {
   readonly CONVEX_SITE_URL: string;
   readonly ALLOWED_ORIGINS: string | undefined;
   readonly CONNECTOR_SECRET: string | undefined;
+  readonly DISPLAY_TIMEZONE: string | undefined;
+  readonly TASK_TIMEOUT_HOURS: string | undefined;
+  readonly TOKEN_ENCRYPTION_KEY: string | undefined;
   readonly WAIT_SECONDS: string | undefined;
 };
 

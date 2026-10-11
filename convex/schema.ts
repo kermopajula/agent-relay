@@ -2,6 +2,18 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  projects: defineTable({
+    name: v.string(),
+    displayName: v.string(),
+    aliases: v.array(v.string()),
+    fireUrl: v.string(),
+    // AES-GCM ciphertext; see lib/crypto.ts. The plain token is never stored.
+    encryptedToken: v.string(),
+    isDefault: v.boolean(),
+    createdAt: v.number(),
+    tokenUpdatedAt: v.number(),
+  }).index("by_name", ["name"]),
+
   tasks: defineTable({
     number: v.number(),
     name: v.string(),

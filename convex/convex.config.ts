@@ -4,7 +4,10 @@ import { v } from "convex/values";
 const app = defineApp({
   env: {
     CONNECTOR_SECRET: v.optional(v.string()),
+    TOKEN_ENCRYPTION_KEY: v.optional(v.string()),
     WAIT_SECONDS: v.optional(v.string()),
+    TASK_TIMEOUT_HOURS: v.optional(v.string()),
+    DISPLAY_TIMEZONE: v.optional(v.string()),
     ALLOWED_ORIGINS: v.optional(v.string()),
   },
 });

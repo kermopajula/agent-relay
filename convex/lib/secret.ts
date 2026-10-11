@@ -22,7 +22,12 @@ export function secretFromPath(pathname: string, prefix: string): string | null 
   if (!pathname.startsWith(start)) return null;
   const rest = pathname.slice(start.length).replace(/\/$/, "");
   if (rest.length === 0 || rest.includes("/")) return null;
-  return decodeURIComponent(rest);
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    // A malformed escape such as "%zz" is a wrong secret, not a server error.
+    return null;
+  }
 }
 
 /** True only when the configured secret is long enough and the path carries it. */

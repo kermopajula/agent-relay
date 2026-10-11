@@ -52,6 +52,10 @@ describe("secret helpers", () => {
     expect(secretFromPath("/log/abc", "mcp")).toBeNull();
   });
 
+  test("secretFromPath treats a malformed escape as no secret", () => {
+    expect(secretFromPath("/mcp/%zz", "mcp")).toBeNull();
+  });
+
   test("secretsMatch compares whole values", async () => {
     expect(await secretsMatch("abc", "abc")).toBe(true);
     expect(await secretsMatch("abc", "abcd")).toBe(false);

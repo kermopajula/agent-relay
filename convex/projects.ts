@@ -187,6 +187,30 @@ export const setDefault = internalMutation({
   },
 });
 
+/** Changes the display name, aliases or fire URL. The token stays as it is. */
+export const update = internalMutation({
+  args: {
+    name: v.string(),
+    displayName: v.optional(v.string()),
+    aliases: v.optional(v.array(v.string())),
+    fireUrl: v.optional(v.string()),
+  },
+  returns: projectView,
+  handler: async (ctx, args) => {
+    const project = await requireProject(ctx, args.name);
+    const changes: Partial<Pick<Doc<"projects">, "displayName" | "aliases" | "fireUrl">> = {};
+    if (args.displayName !== undefined) changes.displayName = cleanText(args.displayName, "displayName");
+    if (args.aliases !== undefined) {
+      const aliases = args.aliases.map((alias) => cleanText(alias, "Each alias"));
+      if (aliases.length > MAX_ALIASES) throw new ConvexError(`At most ${MAX_ALIASES} aliases.`);
+      changes.aliases = aliases;
+    }
+    if (args.fireUrl !== undefined) changes.fireUrl = checkFireUrl(args.fireUrl);
+    await ctx.db.patch("projects", project._id, changes);
+    return toView({ ...project, ...changes });
+  },
+});
+
 export const rotateToken = internalAction({
   args: { name: v.string(), token: v.string() },
   returns: projectView,

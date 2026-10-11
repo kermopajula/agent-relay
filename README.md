@@ -78,7 +78,7 @@ curl -X POST https://<deployment>.convex.site/mcp \
 All routines can share one cloud environment. Create it once:
 
 1. Start a cloud session in the Claude desktop app, open the cloud environment menu in the session's title bar, and add a new environment. Name it, for example "relay".
-2. Under **Network access**, choose the **Limited** level, keep **Allow package managers** ticked, and add `<deployment>.convex.site` under **Allowed domains**. In older app versions this list is under **Custom**, with a box to include the default list. Without the relay's domain, Claude's report requests are blocked and the relay never hears back. See [network access](https://code.claude.com/docs/en/cloud-environments#network-access).
+2. Under **Network access**, choose the **Limited** level, keep **Allow package managers** ticked, and add `<deployment>.convex.site` under **Allowed domains**. In older app versions this list is under **Custom**, with a box to include the default list. Without the relay's domain, Claude's report requests are blocked and the relay never hears back. **Full** access also works, but it lets a session reach any domain. See [network access](https://code.claude.com/docs/en/cloud-environments#network-access).
 3. Save it. Pick this environment for every routine you create below.
 
 ## Add a project
@@ -92,8 +92,9 @@ Create the routine in the Claude desktop app:
 3. Name it after the project, for example "Begin".
 4. **Paste the prompt.** Use the text in [docs/inbox-routine-prompt.md](docs/inbox-routine-prompt.md). It tells Claude to act on the request in the payload, to report back, and to ask before anything hard to undo.
 5. **Pick the repository** the project works on, and the shared environment.
-6. **Remove connectors it does not need.** Every connector is something a request can reach. A bug-fixing routine rarely needs your mail or calendar, so leave them out.
-7. Save the routine. Then choose **Edit**, add an **API trigger**, copy its URL, and choose **Generate token**. The token is shown once. Keep it out of chats and notes; you only need it for the command below.
+6. Under **Select a trigger**, choose **Call via API**.
+7. **Remove connectors it does not need.** Claude can use every connector, including write actions, without asking. A bug-fixing routine rarely needs your mail or calendar, so leave them out.
+8. Choose **Create**. The token is generated when you save and shown once. Copy it and the trigger's fire URL. To add a trigger to an existing routine, choose **Edit**, add an API trigger, and choose **Generate token**. Keep the token out of chats and notes; you only need it for the command below.
 
 Then add the project to the relay:
 
@@ -115,6 +116,7 @@ Other project commands, each with `--prod`:
 | --- | --- |
 | `npx convex run projects:list` | Lists projects. Tokens are never shown. |
 | `npx convex run projects:setDefault '{"name":"begin"}'` | Makes a project the default. |
+| `npx convex run projects:update '{"name":"begin","aliases":["begin bugs","the app"]}'` | Changes the display name, aliases or fire URL. The token stays. |
 | `npx convex run projects:rotateToken '{"name":"begin","token":"sk-ant-oat01-..."}'` | Stores a new token. |
 | `npx convex run projects:remove '{"name":"begin"}'` | Removes a project. Its past tasks stay in the log. |
 

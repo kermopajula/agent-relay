@@ -1,16 +1,16 @@
 # agent-relay
 
-agent-relay is a small relay that you host on your own free Convex deployment. It lets a voice or chat assistant send requests to your Claude Code projects and read back what happened. You say "ask Begin Mobile to fix the login crash", the relay starts a Claude Code session in that project, Claude reports its progress back to the relay, and your assistant reads the result to you. It works with Grok Bot and with any MCP client that supports custom connectors, on one side, and with Claude Code routines on the other. One deployment serves one owner.
+agent-relay is a small relay that you host on your own free Convex deployment. It lets a voice or chat assistant send requests to Claude Code in your repositories and read back what happened. You say "ask Begin to fix the login crash", the relay starts a fresh Claude Code session in that repository, Claude reports its progress back to the relay, and your assistant reads the result to you. It works with Grok Bot and with any MCP client that supports custom connectors, on one side, and with Claude Code routines on the other. One deployment serves one owner.
 
 An example:
 
-> **You:** Ask Begin Mobile to fix the login crash and tell me when it's done.
+> **You:** Ask Begin to fix the login crash and tell me when it's done.
 >
-> **Grok:** Sent to Begin Mobile. I'll know its name in about a minute.
+> **Grok:** Sent to Begin. I'll know its name in about a minute.
 >
 > *(twelve minutes later)*
 >
-> **Grok:** Begin Mobile finished Fix login crash. Draft PR 412 is ready.
+> **Grok:** Begin finished Fix login crash. Draft PR 412 is ready.
 
 agent-relay is not affiliated with xAI or Anthropic.
 
@@ -18,7 +18,7 @@ agent-relay is not affiliated with xAI or Anthropic.
 
 1. Your assistant calls the relay's `send_task` tool with your request and, if you named one, a project.
 2. The relay picks the project and fires that project's Claude Code routine through the routine's API trigger. The request travels as the routine's payload, together with a report URL and a secret that only this task knows.
-3. The routine starts a new Claude Code session in your project. Claude reads the request and does the work with the project's instructions, memory and repositories.
+3. The routine starts a fresh Claude Code session in the project's repository. Claude reads the request and does the work, guided by the repository's CLAUDE.md and skills. Sessions share no memory: each request carries its own instructions.
 4. Claude reports back to the relay over HTTP: first `running` with a short task name, then `done`, `failed` or `needs_input` with a summary, a question or a pull request link.
 5. Your assistant calls `wait_for_task` until the task is final, then reads the result out loud.
 
@@ -27,10 +27,10 @@ agent-relay is not affiliated with xAI or Anthropic.
                       ^                 (Convex)                  │
                       │                    ^                      v
                       └─ wait_for_task ────┘<── reports ── Claude Code session
-                                                            in your project
+                                                            in your repository
 ```
 
-Each project is one general-purpose "inbox" routine, for example "Begin Bugs" or "Begin Mobile". The request text decides what happens: "start a new bug sweep", "fix the login crash" or "deploy the new version".
+A project is one repository with one general-purpose "inbox" routine, for example "Begin" for one app and "Paidetennis" for another. The request text decides what happens: "start a new bug sweep", "fix the login crash" or "deploy the new version".
 
 ## Requirements
 
@@ -73,24 +73,35 @@ curl -X POST https://<deployment>.convex.site/mcp \
   -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"ping"}'
 ```
 
+## Create the shared environment
+
+All routines can share one cloud environment. Create it once:
+
+1. Start a cloud session in the Claude desktop app, open the cloud environment menu in the session's title bar, and add a new environment. Name it, for example "relay".
+2. Under **Network access**, choose the **Limited** level, keep **Allow package managers** ticked, and add `<deployment>.convex.site` under **Allowed domains**. In older app versions this list is under **Custom**, with a box to include the default list. Without the relay's domain, Claude's report requests are blocked and the relay never hears back. See [network access](https://code.claude.com/docs/en/cloud-environments#network-access).
+3. Save it. Pick this environment for every routine you create below.
+
 ## Add a project
 
-A project is one Claude Code routine with an API trigger. Create it on claude.ai:
+A project is one repository with one standalone Claude Code routine. Do not create the routine inside a Claude Project: such a routine fires into one ongoing thread, and the relay needs a fresh session for each request. The session has no project memory. It works from the request and from the repository's CLAUDE.md and skills, so keep those up to date.
 
-1. **Create the routine.** Ideally create it from inside a Claude Project, so each run starts as a new thread in that project with its instructions and memory. Name it after the project, for example "Begin Mobile".
-2. **Paste the prompt.** Use the text in [docs/inbox-routine-prompt.md](docs/inbox-routine-prompt.md). It tells Claude to act on the request in the payload, to report back, and to ask before anything hard to undo.
-3. **Pick the repositories** the project works on.
-4. **Remove connectors it does not need.** Every connector is something a request can reach. A bug-fixing routine rarely needs your mail or calendar, so leave them out.
-5. **Allow the relay's domain.** In the routine's cloud environment, open the network settings and add `<deployment>.convex.site` to the allowed domains. Without it, Claude's report requests are blocked and the relay never hears back.
-6. **Add an API trigger.** Copy the fire URL and the token. The token is shown once.
+Create the routine in the Claude desktop app:
+
+1. In the sidebar, open **More**, then **Routines**.
+2. Choose **New routine**, then **Cloud**.
+3. Name it after the project, for example "Begin".
+4. **Paste the prompt.** Use the text in [docs/inbox-routine-prompt.md](docs/inbox-routine-prompt.md). It tells Claude to act on the request in the payload, to report back, and to ask before anything hard to undo.
+5. **Pick the repository** the project works on, and the shared environment.
+6. **Remove connectors it does not need.** Every connector is something a request can reach. A bug-fixing routine rarely needs your mail or calendar, so leave them out.
+7. Save the routine. Then choose **Edit**, add an **API trigger**, copy its URL, and choose **Generate token**. The token is shown once. Keep it out of chats and notes; you only need it for the command below.
 
 Then add the project to the relay:
 
 ```sh
 npx convex run projects:add '{
-  "name": "begin-mobile",
-  "displayName": "Begin Mobile",
-  "aliases": ["mobile", "the app"],
+  "name": "begin",
+  "displayName": "Begin",
+  "aliases": ["begin bugs", "the app"],
   "fireUrl": "https://api.anthropic.com/v1/claude_code/routines/trig_.../fire",
   "token": "sk-ant-oat01-..."
 }' --prod
@@ -103,9 +114,9 @@ Other project commands, each with `--prod`:
 | Command | What it does |
 | --- | --- |
 | `npx convex run projects:list` | Lists projects. Tokens are never shown. |
-| `npx convex run projects:setDefault '{"name":"begin-bugs"}'` | Makes a project the default. |
-| `npx convex run projects:rotateToken '{"name":"begin-bugs","token":"sk-ant-oat01-..."}'` | Stores a new token. |
-| `npx convex run projects:remove '{"name":"begin-bugs"}'` | Removes a project. Its past tasks stay in the log. |
+| `npx convex run projects:setDefault '{"name":"begin"}'` | Makes a project the default. |
+| `npx convex run projects:rotateToken '{"name":"begin","token":"sk-ant-oat01-..."}'` | Stores a new token. |
+| `npx convex run projects:remove '{"name":"begin"}'` | Removes a project. Its past tasks stay in the log. |
 
 These functions are internal: only someone with your Convex deploy access can call them.
 
@@ -124,15 +135,15 @@ Other MCP clients: add a Streamable HTTP server at `https://<deployment>.convex.
 
 Things you can say:
 
-- "Ask Begin Bugs to start a new bug sweep."
-- "Ask Begin Mobile to fix the login crash and tell me when it's done."
-- "Tell the bug project to look at yesterday's crash reports." (a loose project name works)
+- "Ask Begin to start a new bug sweep."
+- "Ask Paidetennis to fix the login crash and tell me when it's done."
+- "Tell the bugs project to look at yesterday's crash reports." (a loose project name works)
 - "Is the login crash task done?"
-- "What are my Begin Mobile tasks?"
+- "What are my Begin tasks?"
 - "Which projects do I have?"
 - When Claude asks first, for example "Deploy version 2.4.0 to production now?": "Yes, go ahead." The assistant sends this as a follow-up of the earlier task, so the new session continues the same work.
 
-Until Claude names a task, it is called "new Begin Mobile task, sent 10:05". That name keeps working after Claude renames it. Duplicate names get " (2)", " (3)" and so on.
+Until Claude names a task, it is called "new Begin task, sent 10:05". That name keeps working after Claude renames it. Duplicate names get " (2)", " (3)" and so on.
 
 | Tool | What it does |
 | --- | --- |
@@ -148,13 +159,13 @@ Until Claude names a task, it is called "new Begin Mobile task, sent 10:05". Tha
 - **Who can start your routines.** Only callers with `CONNECTOR_SECRET` reach the MCP tools; any other request gets a plain 404. The routine tokens stay in your deployment, encrypted with AES-GCM under `TOKEN_ENCRYPTION_KEY`, and no tool, log or command returns them. To lock everyone out, set a new `CONNECTOR_SECRET`.
 - **What a request can do.** A request can do whatever the routine's prompt, repositories and connectors allow, and no more. Anthropic's rate limits cap how often routines start.
 - **Reports are per task.** Each task has its own random report secret. The relay stores only its SHA-256 hash, so one session cannot report on another session's task.
-- **Keep connectors minimal per project.** Each routine gets only the repositories and connectors its project needs.
+- **Keep connectors minimal per project.** Each routine gets only its own repository and the connectors that repository needs.
 - **Untrusted content stays data.** The routine prompt tells Claude to treat instructions found in files, issues and web pages as data, not commands.
 
 ## Troubleshooting
 
-- **"Claude hasn't checked in yet."** No report arrived within 15 minutes of the start. Open the session link. The usual cause is that `<deployment>.convex.site` is missing from the allowed domains in the routine environment's network settings, so Claude's curl requests are blocked.
-- **"The token for Begin Mobile was rejected."** The routine API answered 401. Create a new token on the routine's API trigger and store it with `projects:rotateToken`.
+- **"Claude hasn't checked in yet."** No report arrived within 15 minutes of the start. Open the session link. The usual cause is that `<deployment>.convex.site` is missing from the allowed domains of the shared environment, so Claude's curl requests are blocked.
+- **"The token for Begin was rejected."** The routine API answered 401. Create a new token on the routine's API trigger and store it with `projects:rotateToken`.
 - **"Rate limited by Anthropic; try again later."** The routine API answered 429. Each routine accepts 30 API starts per hour, and each account 100.
 - **The assistant stops waiting or reports a tool timeout.** Lower `WAIT_SECONDS`, for example to 25, so each `wait_for_task` call returns sooner.
 - **Reading the log.** Open `https://<deployment>.convex.site/log/<CONNECTOR_SECRET>?format=text&tz=Europe/Tallinn`. For each task it shows the project, the request, the status history with times, every report, every assistant call with the gap since the previous one, and whether the final result reached the assistant. Without `format=text` you get the same data as JSON, newest first, with the last 500 requests.

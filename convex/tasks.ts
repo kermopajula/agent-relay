@@ -1,12 +1,16 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { env, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
-import { timeZoneOrUtc } from "./lib/config";
+import { taskTimeoutHours, timeZoneOrUtc } from "./lib/config";
 import { constantTimeEqual } from "./lib/crypto";
 import { dedupeName, provisionalName } from "./lib/names";
-import { isClosed, type TaskStatus } from "./lib/status";
+import { isClosed, isFinalForWait, type TaskStatus } from "./lib/status";
 
 const NAME_SCAN = 200;
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+export const START_REPORT_MINUTES = 15;
 
 /** Names in use that start with `base`, by current name and by provisional name. */
 export async function takenNames(ctx: MutationCtx, base: string, except?: Id<"tasks">): Promise<string[]> {
@@ -56,6 +60,47 @@ export const markFired = internalMutation({
     const firedAt = Date.now();
     await ctx.db.patch("tasks", taskId, { sessionId, sessionUrl, firedAt });
     await ctx.db.insert("taskEvents", { taskId, at: firedAt, status: "sent", source: "relay", note: "routine fired" });
+    await ctx.scheduler.runAfter(START_REPORT_MINUTES * MINUTE_MS, internal.tasks.checkStarted, { taskId });
+    const hours = taskTimeoutHours(env.TASK_TIMEOUT_HOURS);
+    await ctx.scheduler.runAfter(hours * HOUR_MS, internal.tasks.checkFinished, { taskId, hours });
+    return null;
+  },
+});
+
+/** No report at all since the fire. Later reports are still accepted. */
+export const checkStarted = internalMutation({
+  args: { taskId: v.id("tasks") },
+  handler: async (ctx, { taskId }) => {
+    const task = await ctx.db.get("tasks", taskId);
+    if (!task || task.status !== "sent") return null;
+    const now = Date.now();
+    await ctx.db.patch("tasks", taskId, { status: "no_start_report" });
+    await ctx.db.insert("taskEvents", {
+      taskId,
+      at: now,
+      status: "no_start_report",
+      source: "timer",
+      note: `no report ${START_REPORT_MINUTES} minutes after the fire`,
+    });
+    return null;
+  },
+});
+
+/** No final report in time. Final for wait_for_task, but a late report still overrides it. */
+export const checkFinished = internalMutation({
+  args: { taskId: v.id("tasks"), hours: v.number() },
+  handler: async (ctx, { taskId, hours }) => {
+    const task = await ctx.db.get("tasks", taskId);
+    if (!task || isFinalForWait(task.status)) return null;
+    const now = Date.now();
+    await ctx.db.patch("tasks", taskId, { status: "timed_out", finalAt: now });
+    await ctx.db.insert("taskEvents", {
+      taskId,
+      at: now,
+      status: "timed_out",
+      source: "timer",
+      note: `no final report ${hours} hours after the fire`,
+    });
     return null;
   },
 });

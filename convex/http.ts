@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { handleLog } from "./logEndpoint";
 import { handleNotAllowed, handleOptions, handlePost } from "./mcp";
+import { handleReport } from "./reportEndpoint";
 
 const http = httpRouter();
 
@@ -18,5 +19,8 @@ http.route({ pathPrefix: "/mcp/", method: "GET", handler: httpAction(handleNotAl
 http.route({ pathPrefix: "/mcp/", method: "DELETE", handler: httpAction(handleNotAllowed) });
 http.route({ pathPrefix: "/mcp/", method: "OPTIONS", handler: options });
 http.route({ pathPrefix: "/log/", method: "GET", handler: httpAction(handleLog) });
+
+// Claude's sessions report task status here with the per-task secret as a bearer token.
+http.route({ pathPrefix: "/report/", method: "POST", handler: httpAction(handleReport) });
 
 export default http;

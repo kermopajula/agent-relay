@@ -27,6 +27,7 @@ import type * as lib_toolDefinitions from "../lib/toolDefinitions.js";
 import type * as logEndpoint from "../logEndpoint.js";
 import type * as mcp from "../mcp.js";
 import type * as projects from "../projects.js";
+import type * as reportEndpoint from "../reportEndpoint.js";
 import type * as sendTask from "../sendTask.js";
 import type * as tasks from "../tasks.js";
 import type * as toolRunner from "../toolRunner.js";
@@ -57,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   logEndpoint: typeof logEndpoint;
   mcp: typeof mcp;
   projects: typeof projects;
+  reportEndpoint: typeof reportEndpoint;
   sendTask: typeof sendTask;
   tasks: typeof tasks;
   toolRunner: typeof toolRunner;

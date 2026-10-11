@@ -2,7 +2,9 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { env, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { timeZoneOrUtc } from "./lib/config";
+import { constantTimeEqual } from "./lib/crypto";
 import { dedupeName, provisionalName } from "./lib/names";
+import { isClosed, type TaskStatus } from "./lib/status";
 
 const NAME_SCAN = 200;
 
@@ -97,5 +99,80 @@ export const recent = internalQuery({
         .take(limit);
     }
     return ctx.db.query("tasks").order("desc").take(limit);
+  },
+});
+
+const reportValidator = v.object({
+  status: v.union(v.literal("running"), v.literal("done"), v.literal("failed"), v.literal("needs_input")),
+  name: v.optional(v.string()),
+  summary: v.optional(v.string()),
+  question: v.optional(v.string()),
+  prUrl: v.optional(v.string()),
+  branch: v.optional(v.string()),
+});
+
+type ReportOutcome = {
+  httpStatus: 200 | 400 | 404 | 409;
+  message: string;
+  taskId?: Id<"tasks">;
+  name?: string;
+  status?: TaskStatus;
+};
+
+/**
+ * Applies one report from Claude. The secret check comes first, so a caller
+ * without the secret learns nothing about the task, not even a 400.
+ */
+export const applyReport = internalMutation({
+  args: {
+    taskId: v.string(),
+    secretHash: v.string(),
+    report: v.optional(reportValidator),
+    invalid: v.optional(v.string()),
+  },
+  handler: async (ctx, { taskId: rawId, secretHash, report, invalid }): Promise<ReportOutcome> => {
+    const taskId = ctx.db.normalizeId("tasks", rawId);
+    const task = taskId ? await ctx.db.get("tasks", taskId) : null;
+    if (!task || !constantTimeEqual(task.reportSecretHash, secretHash)) {
+      return { httpStatus: 404, message: "Not found" };
+    }
+    const known = { taskId: task._id, name: task.name, status: task.status };
+    if (invalid !== undefined || !report) {
+      return { ...known, httpStatus: 400, message: invalid ?? "Missing report" };
+    }
+    if (isClosed(task.status)) {
+      return {
+        ...known,
+        httpStatus: 409,
+        message: `This task already has the final status ${task.status}. A follow-up task carries any further work.`,
+      };
+    }
+
+    const now = Date.now();
+    let name = task.name;
+    if (report.name && !task.nameReported) {
+      name = dedupeName(report.name, await takenNames(ctx, report.name, task._id));
+    }
+    const final = report.status !== "running";
+    await ctx.db.patch("tasks", task._id, {
+      status: report.status,
+      name,
+      nameReported: task.nameReported || name !== task.name,
+      lastReportAt: now,
+      ...(report.summary !== undefined && { summary: report.summary }),
+      ...(report.question !== undefined && { question: report.question }),
+      ...(report.prUrl !== undefined && { prUrl: report.prUrl }),
+      ...(report.branch !== undefined && { branch: report.branch }),
+      // A late report can replace timed_out, so any earlier delivery no longer counts.
+      ...(final && { finalAt: now, deliveredAt: undefined }),
+    });
+    await ctx.db.insert("taskEvents", {
+      taskId: task._id,
+      at: now,
+      status: report.status,
+      source: "report",
+      note: name !== task.name ? `named "${name}"` : undefined,
+    });
+    return { taskId: task._id, name, status: report.status, httpStatus: 200, message: `Accepted ${report.status}.` };
   },
 });

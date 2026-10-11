@@ -5,7 +5,7 @@ export const LEGACY_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 export const SUPPORTED_VERSIONS = [...MODERN_VERSIONS, ...LEGACY_VERSIONS];
 export const LATEST_LEGACY = "2025-11-25";
 
-export const SERVER_INFO = { name: "grok-bot-claude-bridge-spike", version: "0.1.0" };
+export const SERVER_INFO = { name: "agent-relay-spike", version: "0.1.0" };
 
 export const ERROR = {
   parse: -32700,

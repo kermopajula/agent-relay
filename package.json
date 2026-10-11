@@ -1,7 +1,7 @@
 {
-  "name": "grok-bot-claude-bridge",
+  "name": "agent-relay",
   "version": "0.1.0",
-  "description": "Throwaway test connector: checks whether Grok Bot can use a custom MCP connector and wait on long tasks.",
+  "description": "agent-relay spike: a fake MCP connector that tests whether Grok Bot can use a custom connector and wait on long tasks.",
   "scripts": {
     "dev": "convex dev",
     "deploy": "convex deploy",
@@ -19,5 +19,9 @@
     "vitest": "^5.0.3"
   },
   "private": true,
-  "type": "module"
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kermopajula/agent-relay.git"
+  }
 }

@@ -1,12 +1,14 @@
-# Grok Bot to Claude bridge: test connector
+# agent-relay
 
-This is a throwaway test, not the bridge. It is a fake MCP connector that answers three questions in a real car before we build anything:
+agent-relay is a planned open-source, self-hosted relay: any MCP assistant sends tasks to your own coding agent and reads back status. The first pair is Grok Bot (in the Grok apps and in a Tesla) sending tasks to Claude Code routines.
+
+This repository holds the first spike: the Grok Bot test. It is a throwaway fake MCP connector, not the relay. It answers three questions in a real car before we build anything:
 
 1. Does Grok Bot accept a custom MCP connector added by URL?
 2. When you say "...and tell me when it's done", does Grok Bot keep checking a long task and announce the result by voice?
 3. How long does it keep waiting: 2, 10 or 30 minutes?
 
-Nothing calls Claude. Each task is fake and finishes on a timer. Every request Grok makes is logged, and the log is the test result.
+Nothing calls a coding agent. Each task is fake and finishes on a timer. Every request Grok makes is logged, and the log is the test result.
 
 This project is not affiliated with xAI or Anthropic.
 
@@ -33,6 +35,8 @@ Tools:
 You need Node 20 or later and a free Convex account.
 
 ```sh
+git clone https://github.com/kermopajula/agent-relay.git
+cd agent-relay
 npm install
 npx convex login
 npx convex dev --once --configure=new   # creates a free project; pick any name
@@ -59,7 +63,7 @@ Optional settings, each with `npx convex env set NAME value --prod`:
 
 We do not yet know which auth methods Grok custom connectors support. A long random secret in the path works with any client and does not start an OAuth flow. A wrong or missing secret gets a plain 404, so the endpoint does not reveal itself.
 
-The trade-off: anyone who sees the URL can use the connector. The URL may appear in xAI's systems, in proxy logs and in Convex request logs. This is acceptable only because the tools are fake and hold no data. The real bridge needs proper auth (OAuth or a bearer token). To revoke access, set a new `CONNECTOR_SECRET`.
+The trade-off: anyone who sees the URL can use the connector. The URL may appear in xAI's systems, in proxy logs and in Convex request logs. This is acceptable only because the tools are fake and hold no data. The real relay needs proper auth (OAuth or a bearer token). To revoke access, set a new `CONNECTOR_SECRET`.
 
 ## Add the connector in Grok
 

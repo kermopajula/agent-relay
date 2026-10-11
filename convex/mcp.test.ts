@@ -69,7 +69,7 @@ describe("legacy handshake (2025-11-25 and earlier)", () => {
     expect(body.result).toMatchObject({
       protocolVersion: "2025-06-18",
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: "grok-bot-claude-bridge-spike" },
+      serverInfo: { name: "agent-relay-spike" },
     });
     expect(body.result.instructions).toContain("wait_for_task");
     expect(body.result.resultType).toBeUndefined();
@@ -135,7 +135,7 @@ describe("modern per-request metadata (2026-07-28)", () => {
     const { status, body } = await post(t, modernRequest("tools/list"));
     expect(status).toBe(200);
     expect(body.result.resultType).toBe("complete");
-    expect(body.result._meta["io.modelcontextprotocol/serverInfo"].name).toBe("grok-bot-claude-bridge-spike");
+    expect(body.result._meta["io.modelcontextprotocol/serverInfo"].name).toBe("agent-relay-spike");
     expect(body.result.tools).toHaveLength(4);
   });
 

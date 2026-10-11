@@ -1,7 +1,7 @@
 {
   "name": "agent-relay",
-  "version": "0.1.0",
-  "description": "agent-relay spike: a fake MCP connector that tests whether Grok Bot can use a custom connector and wait on long tasks.",
+  "version": "0.2.0",
+  "description": "agent-relay: a self-hosted MCP relay that sends requests from voice and chat assistants to Claude Code routines and reads back the results.",
   "scripts": {
     "dev": "convex dev",
     "deploy": "convex deploy",

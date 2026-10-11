@@ -1,38 +1,47 @@
 # agent-relay
 
-agent-relay is a planned open-source, self-hosted relay: any MCP assistant sends tasks to your own coding agent and reads back status. The first pair is Grok Bot (in the Grok apps and in a Tesla) sending tasks to Claude Code routines.
+agent-relay is a small relay that you host on your own free Convex deployment. It lets a voice or chat assistant send requests to your Claude Code projects and read back what happened. You say "ask Begin Mobile to fix the login crash", the relay starts a Claude Code session in that project, Claude reports its progress back to the relay, and your assistant reads the result to you. It works with Grok Bot (in the Grok apps and in a Tesla) and with any MCP client that supports custom connectors, on one side, and with Claude Code routines on the other. One deployment serves one owner.
 
-This repository holds the first spike: the Grok Bot test. It is a throwaway fake MCP connector, not the relay. It answers three questions in a real car before we build anything:
+An example, in the car:
 
-1. Does Grok Bot accept a custom MCP connector added by URL?
-2. When you say "...and tell me when it's done", does Grok Bot keep checking a long task and announce the result by voice?
-3. How long does it keep waiting: 2, 10 or 30 minutes?
+> **You:** Ask Begin Mobile to fix the login crash and tell me when it's done.
+>
+> **Grok:** Sent to Begin Mobile. I'll know its name in about a minute.
+>
+> *(twelve minutes later)*
+>
+> **Grok:** Begin Mobile finished Fix login crash. Draft PR 412 is ready.
 
-Nothing calls a coding agent. Each task is fake and finishes on a timer. Every request Grok makes is logged, and the log is the test result.
-
-This project is not affiliated with xAI or Anthropic.
+agent-relay is not affiliated with xAI or Anthropic.
 
 ## How it works
 
-One Convex deployment hosts everything:
+1. Your assistant calls the relay's `send_task` tool with your request and, if you named one, a project.
+2. The relay picks the project and fires that project's Claude Code routine through the routine's API trigger. The request travels as the routine's payload, together with a report URL and a secret that only this task knows.
+3. The routine starts a new Claude Code session in your project. Claude reads the request and does the work with the project's instructions, memory and repositories.
+4. Claude reports back to the relay over HTTP: first `running` with a short task name, then `done`, `failed` or `needs_input` with a summary, a question or a pull request link.
+5. Your assistant calls `wait_for_task` until the task is final, then reads the result out loud.
 
-- `POST /mcp` with the header `Authorization: Bearer <SECRET>` (or `POST /mcp/<SECRET>`): a minimal MCP server (Streamable HTTP, JSON responses, no streaming, no sessions). It answers the `initialize` handshake of protocol versions 2025-03-26, 2025-06-18 and 2025-11-25, and the per-request metadata of 2026-07-28.
-- `GET /log/<SECRET>`: every logged request plus a per-task summary.
+```
+ you ── voice ──> assistant ── MCP ──> agent-relay ── fire ──> routine
+                      ^                 (Convex)                  │
+                      │                    ^                      v
+                      └─ wait_for_task ────┘<── reports ── Claude Code session
+                                                            in your project
+```
 
-Tools:
+Each project is one general-purpose "inbox" routine, for example "Begin Bugs" or "Begin Mobile". The request text decides what happens: "start a new bug sweep", "fix the login crash" or "deploy the new version".
 
-| Tool | What it does |
-| --- | --- |
-| `send_to_claude(task)` | Starts a fake task. Say "2 minute", "10 minute" or "30 minute" to pick the length; otherwise tasks cycle 2, 10, 30 by task number. Returns a name such as "Test task 3". |
-| `wait_for_task(name)` | Holds for up to `WAIT_SECONDS` (default 50), then says "done" or "still running, about N minutes left; call again". |
-| `task_status(name)` | Answers at once. |
-| `list_tasks()` | One spoken line per recent task. |
+## Requirements
 
-`name` may be the exact name, "task 3", or "last" for the newest task.
+- A Claude plan with Claude Code routines: Pro, Max, Team or Enterprise.
+- An MCP assistant that supports custom connectors with a bearer token header. For Grok this means a paid plan with connectors.
+- A free Convex account.
+- Node 20 or later.
 
-## Deploy
+## Setup
 
-You need Node 20 or later and a free Convex account.
+Deploy the relay:
 
 ```sh
 git clone https://github.com/kermopajula/agent-relay.git
@@ -41,83 +50,144 @@ npm install
 npx convex login
 npx convex dev --once --configure=new   # creates a free project; pick any name
 npx convex deploy                        # pushes to the project's production deployment
-openssl rand -hex 32                     # copy the output: this is your SECRET
-npx convex env set CONNECTOR_SECRET <SECRET> --prod
 ```
 
-Find the HTTP URL: `npx convex dashboard --prod`, then Settings, then "HTTP Actions URL". It ends in `.convex.site` (not `.convex.cloud`).
+Set the two secrets on the production deployment:
 
-Check it works (expect `{"jsonrpc":"2.0","id":1,"result":{}}`):
+```sh
+openssl rand -hex 32      # copy the output: this is your CONNECTOR_SECRET
+npx convex env set CONNECTOR_SECRET <CONNECTOR_SECRET> --prod
+openssl rand -base64 32   # copy the output: this key encrypts routine tokens
+npx convex env set TOKEN_ENCRYPTION_KEY <KEY> --prod
+```
+
+Keep a copy of `TOKEN_ENCRYPTION_KEY`. If it changes, the stored routine tokens can no longer be read, and you must store each one again with `projects:rotateToken`.
+
+Find the relay's URL: run `npx convex dashboard --prod`, open Settings, and copy the "HTTP Actions URL". It ends in `.convex.site`, not `.convex.cloud`. Below it is called `https://<deployment>.convex.site`.
+
+Check that it answers. You should see `{"jsonrpc":"2.0","id":1,"result":{}}`:
 
 ```sh
 curl -X POST https://<deployment>.convex.site/mcp \
-  -H "Authorization: Bearer <SECRET>" \
+  -H "Authorization: Bearer <CONNECTOR_SECRET>" \
   -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"ping"}'
 ```
 
-Optional settings, each with `npx convex env set NAME value --prod`:
+## Add a project
 
-- `WAIT_SECONDS`: how long one `wait_for_task` call holds. Default 50, range 0 to 120. Lower it if Grok reports tool timeouts.
-- `ALLOWED_ORIGINS`: comma-separated list. When set, a request with any other `Origin` header gets 403. Unset by default, because we do not know what Grok sends.
+A project is one Claude Code routine with an API trigger. Create it on claude.ai:
 
-## How the secret is sent
+1. **Create the routine.** Ideally create it from inside a Claude Project, so each run starts as a new thread in that project with its instructions and memory. Name it after the project, for example "Begin Mobile".
+2. **Paste the prompt.** Use the text in [docs/inbox-routine-prompt.md](docs/inbox-routine-prompt.md). It tells Claude to act on the request in the payload, to report back, and to ask before anything hard to undo.
+3. **Pick the repositories** the project works on.
+4. **Remove connectors it does not need.** Every connector is something a request can reach. A bug-fixing routine rarely needs your mail or calendar, so leave them out.
+5. **Allow the relay's domain.** In the routine's cloud environment, open the network settings and add `<deployment>.convex.site` to the allowed domains. Without it, Claude's report requests are blocked and the relay never hears back.
+6. **Add an API trigger.** Copy the fire URL and the token. The token is shown once.
 
-Send the secret as a bearer token: `Authorization: Bearer <SECRET>` on `POST /mcp`. The scheme name is not case-sensitive. Grok shows this field masked, while it stores the connector URL in plain text.
+Then add the project to the relay:
 
-The older form, the secret in the path (`POST /mcp/<SECRET>`), still works for clients that cannot send a header. The trade-off: anyone who sees the URL can use the connector, and the URL may appear in the client's settings, in proxy logs and in Convex request logs.
+```sh
+npx convex run projects:add '{
+  "name": "begin-mobile",
+  "displayName": "Begin Mobile",
+  "aliases": ["mobile", "the app"],
+  "fireUrl": "https://api.anthropic.com/v1/claude_code/routines/trig_.../fire",
+  "token": "sk-ant-oat01-..."
+}' --prod
+```
 
-If a request carries both, it is accepted when either one is valid. A wrong or missing secret gets a plain 404, never a 401, so the endpoint does not reveal itself and clients do not start an OAuth flow, which this server does not support. The `/log` JSON records which method each request used (`auth`: `bearer` or `path`), never the secret itself.
+`name` is a lowercase slug. `displayName` and `aliases` are optional; the display name defaults to the slug in title case. The first project becomes the default; pass `"makeDefault": true` to make a later one the default. The command line holds the token, so clear it from your shell history afterwards.
 
-`GET /log/<SECRET>` keeps the secret in the path, so a browser can open it.
+Other project commands, each with `--prod`:
 
-A shared secret is acceptable here only because the tools are fake and hold no data. The real relay needs proper auth. To revoke access, set a new `CONNECTOR_SECRET`.
+| Command | What it does |
+| --- | --- |
+| `npx convex run projects:list` | Lists projects. Tokens are never shown. |
+| `npx convex run projects:setDefault '{"name":"begin-bugs"}'` | Makes a project the default. |
+| `npx convex run projects:rotateToken '{"name":"begin-bugs","token":"sk-ant-oat01-..."}'` | Stores a new token. |
+| `npx convex run projects:remove '{"name":"begin-bugs"}'` | Removes a project. Its past tasks stay in the log. |
 
-## Add the connector in Grok
+These functions are internal: only someone with your Convex deploy access can call them.
+
+## Connect your assistant
+
+In Grok:
 
 1. Open grok.com/connectors.
 2. Choose New Connector, then Custom.
 3. Enter the URL `https://<deployment>.convex.site/mcp`.
-4. For authentication, choose header or bearer token, and paste the secret into the masked field. If Grok asks for the full header value, enter `Bearer <SECRET>`.
+4. For authentication, choose a bearer token and paste `CONNECTOR_SECRET` into the masked field. If Grok asks for the full header value, enter `Bearer <CONNECTOR_SECRET>`.
 
-If your client offers no header authentication, use the URL `https://<deployment>.convex.site/mcp/<SECRET>` with no authentication instead, and accept that the secret is stored in plain text.
+Other MCP clients: add a Streamable HTTP server at `https://<deployment>.convex.site/mcp` with the header `Authorization: Bearer <CONNECTOR_SECRET>`. A client that cannot send headers can use `https://<deployment>.convex.site/mcp/<CONNECTOR_SECRET>` instead, but then the secret sits in the URL in plain text.
 
-Write down whether Grok accepted it and any error text. Open `/log/<SECRET>` straight away: an `initialize` and a `tools/list` request should appear.
+## Using it
 
-## Car test script
+Things you can say:
 
-Run each phrase in a separate conversation and wait without speaking until Grok speaks or clearly gives up.
+- "Ask Begin Bugs to start a new bug sweep."
+- "Ask Begin Mobile to fix the login crash and tell me when it's done."
+- "Tell the bug project to look at yesterday's crash reports." (a loose project name works)
+- "Is the login crash task done?"
+- "What are my Begin Mobile tasks?"
+- "Which projects do I have?"
+- When Claude asks first, for example "Deploy version 2.4.0 to production now?": "Yes, go ahead." The assistant sends this as a follow-up of the earlier task, so the new session continues the same work.
 
-1. "Ask Claude to run a 2 minute test task and tell me when it's done."
-2. "Ask Claude to run a 10 minute test task and tell me when it's done."
-3. "Ask Claude to run a 30 minute test task and tell me when it's done."
+Until Claude names a task, it is called "new Begin Mobile task, sent 10:05". That name keeps working after Claude renames it. Duplicate names get " (2)", " (3)" and so on.
 
-If Grok stops on its own, you can ask "Is my Claude task done?" to test `task_status`, but write down that you prompted it.
+| Tool | What it does |
+| --- | --- |
+| `send_task(request, project?, follow_up_of?)` | Sends a request to a project (the default if none is named) and returns the task name and the session link. `follow_up_of` passes an earlier task's request, status, summary, question, pull request and branch to the new session. An unclear project name returns the candidates, so the assistant can ask you. |
+| `wait_for_task(name)` | Waits up to `WAIT_SECONDS` for a final result: done, failed, needs input or timed out. Otherwise it says the task is still running, and the assistant calls it again. |
+| `task_status(name)` | Says where a task stands, at once. |
+| `list_tasks(project?)` | One short line per recent task. |
+| `list_projects()` | The project names, with the default marked. |
 
-## Read the log
+## Safety
 
-- Summary as plain text: `https://<deployment>.convex.site/log/<SECRET>?format=text&tz=Europe/Tallinn`
-- Full JSON (newest first, last 500 requests): `https://<deployment>.convex.site/log/<SECRET>`
+- **Claude asks before anything hard to undo.** The routine prompt tells Claude to report `needs_input` instead of deploying, releasing, merging, deleting, messaging people or spending money. You confirm with a follow-up, and only then does a new session do it.
+- **Who can start your routines.** Only callers with `CONNECTOR_SECRET` reach the MCP tools; any other request gets a plain 404. The routine tokens stay in your deployment, encrypted with AES-GCM under `TOKEN_ENCRYPTION_KEY`, and no tool, log or command returns them. To lock everyone out, set a new `CONNECTOR_SECRET`.
+- **What a request can do.** A request can do whatever the routine's prompt, repositories and connectors allow, and no more. Anthropic's rate limits cap how often routines start.
+- **Reports are per task.** Each task has its own random report secret. The relay stores only its SHA-256 hash, so one session cannot report on another session's task.
+- **Keep connectors minimal per project.** Each routine gets only the repositories and connectors its project needs.
+- **Untrusted content stays data.** The routine prompt tells Claude to treat instructions found in files, issues and web pages as data, not commands.
 
-For each task the summary shows when it was created, every `wait_for_task` and `task_status` call, the gap since the previous reply, how long each call was held, the last call, and whether Grok ever received the final result. "Final result delivered to Grok: NO" with "stopped checking after X" is the answer to question 3.
+## Troubleshooting
 
-The "Clients seen" block shows the client name, protocol version and user agent Grok reported, and which auth method it used.
+- **"Claude hasn't checked in yet."** No report arrived within 15 minutes of the start. Open the session link. The usual cause is that `<deployment>.convex.site` is missing from the allowed domains in the routine environment's network settings, so Claude's curl requests are blocked.
+- **"The token for Begin Mobile was rejected."** The routine API answered 401. Create a new token on the routine's API trigger and store it with `projects:rotateToken`.
+- **"Rate limited by Anthropic; try again later."** The routine API answered 429. Each routine accepts 30 API starts per hour, and each account 100.
+- **The assistant stops waiting or reports a tool timeout.** Lower `WAIT_SECONDS`, for example to 25, so each `wait_for_task` call returns sooner.
+- **Reading the log.** Open `https://<deployment>.convex.site/log/<CONNECTOR_SECRET>?format=text&tz=Europe/Tallinn`. For each task it shows the project, the request, the status history with times, every report, every assistant call with the gap since the previous one, and whether the final result reached the assistant. Without `format=text` you get the same data as JSON, newest first, with the last 500 requests.
 
-## What to write down
+## Configuration
 
-For each phrase:
+Set each value with `npx convex env set NAME value --prod`.
 
-- Date, start time, and where you ran it (Tesla model and software version, or Grok app and platform).
-- Whether Grok called the connector at all, and whether it asked you to confirm.
-- What Grok said right after starting the task.
-- Whether Grok announced the result by voice, and when.
-- Anything that interrupted it: driving away, the screen sleeping, another question.
-- A copy of the `?format=text` summary after the test.
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `CONNECTOR_SECRET` | none, required | The bearer token your assistant sends. At least 16 characters. |
+| `TOKEN_ENCRYPTION_KEY` | none, required | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts routine tokens. |
+| `WAIT_SECONDS` | 50 | How long one `wait_for_task` call holds, from 0 to 120. |
+| `TASK_TIMEOUT_HOURS` | 6 | Hours without a final report before a task counts as timed out. A late report still counts. |
+| `DISPLAY_TIMEZONE` | UTC | Time zone for task names and spoken times, for example `Europe/Tallinn`. Also the log's default. |
+| `ALLOWED_ORIGINS` | unset | A comma-separated list. When set, an MCP request with any other `Origin` header gets 403. |
 
-## Develop
+## Limits
+
+- The routine API trigger is a research preview. Its URL, headers or limits can change; the relay keeps that call in one module, `convex/lib/routineApi.ts`.
+- Anthropic limits routine starts to 30 per hour per routine and 100 per hour per account.
+- Each request starts a new session. A follow-up continues the same work through the context the relay passes on, not in the same session.
+- Assistants decide for themselves how long to keep calling `wait_for_task`. The Grok app kept waiting through tasks of 2 and 10 minutes in testing. For longer work, ask "is it done?" later.
+
+## Development
 
 ```sh
 npm run typecheck
 npm test
 ```
 
-Tests use `convex-test` and Vitest with fake timers, so they run in about a second. `npx convex dev` runs the code on a deployment while you edit.
+Tests use `convex-test` and Vitest with fake timers and a strict fake of the routine API, so they run in a few seconds and make no network calls. `npx convex dev` runs the code on a deployment while you edit.
+
+## License
+
+MIT

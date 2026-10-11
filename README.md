@@ -168,7 +168,7 @@ Until Claude names a task, it is called "new Begin task, sent 10:05". That name 
 - **"The token for Begin was rejected."** The routine API answered 401. Create a new token on the routine's API trigger and store it with `projects:rotateToken`.
 - **"Rate limited by Anthropic; try again later."** The routine API answered 429. Each routine accepts 30 API starts per hour, and each account 100.
 - **The assistant stops waiting or reports a tool timeout.** Lower `WAIT_SECONDS`, for example to 25, so each `wait_for_task` call returns sooner.
-- **Reading the log.** Open `https://<deployment>.convex.site/log/<CONNECTOR_SECRET>?format=text&tz=Europe/Tallinn`. For each task it shows the project, the request, the status history with times, every report, every assistant call with the gap since the previous one, and whether the final result reached the assistant. Without `format=text` you get the same data as JSON, newest first, with the last 500 requests.
+- **Reading the log.** Open `https://<deployment>.convex.site/log/<CONNECTOR_SECRET>?format=text&tz=Europe/Tallinn`. For each task it shows the project, the request, the status history with times, every report, every assistant call with the gap since the previous one, and whether the final result reached the assistant. Without `format=text` you get the same data as JSON, newest first, with the last 500 requests. Grok connects through mcp-remote, so in the log it shows up as the client "Cursor (via mcp-remote)" with user agent `undici`, next to a probe called `mcp-remote-fallback-test`.
 
 ## Configuration
 

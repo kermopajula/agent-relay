@@ -1,8 +1,8 @@
 # agent-relay
 
-agent-relay is a small relay that you host on your own free Convex deployment. It lets a voice or chat assistant send requests to your Claude Code projects and read back what happened. You say "ask Begin Mobile to fix the login crash", the relay starts a Claude Code session in that project, Claude reports its progress back to the relay, and your assistant reads the result to you. It works with Grok Bot (in the Grok apps and in a Tesla) and with any MCP client that supports custom connectors, on one side, and with Claude Code routines on the other. One deployment serves one owner.
+agent-relay is a small relay that you host on your own free Convex deployment. It lets a voice or chat assistant send requests to your Claude Code projects and read back what happened. You say "ask Begin Mobile to fix the login crash", the relay starts a Claude Code session in that project, Claude reports its progress back to the relay, and your assistant reads the result to you. It works with Grok Bot and with any MCP client that supports custom connectors, on one side, and with Claude Code routines on the other. One deployment serves one owner.
 
-An example, in the car:
+An example:
 
 > **You:** Ask Begin Mobile to fix the login crash and tell me when it's done.
 >

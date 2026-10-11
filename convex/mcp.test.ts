@@ -53,6 +53,75 @@ describe("secret in the path", () => {
   });
 });
 
+describe("secret as a bearer header", () => {
+  const withAuth = (value: string, init: RequestInit = legacyRequest("ping")): RequestInit => ({
+    ...init,
+    headers: { ...(init.headers as Record<string, string>), Authorization: value },
+  });
+
+  test("the right bearer token at bare /mcp reaches the MCP server", async () => {
+    const t = setup();
+    const { status, body } = await post(t, withAuth(`Bearer ${SECRET}`), "/mcp");
+    expect(status).toBe(200);
+    expect(body.result).toEqual({});
+  });
+
+  test("the scheme is case-insensitive and whitespace is trimmed", async () => {
+    const t = setup();
+    const { status } = await post(t, withAuth(`  bearer   ${SECRET}  `), "/mcp");
+    expect(status).toBe(200);
+  });
+
+  test("a trailing slash /mcp/ with the bearer token works", async () => {
+    const t = setup();
+    const { status, body } = await post(t, withAuth(`Bearer ${SECRET}`), "/mcp/");
+    expect(status).toBe(200);
+    expect(body.result).toEqual({});
+  });
+
+  test("a wrong token, another scheme or no header at /mcp answers a plain 404, never 401", async () => {
+    const t = setup();
+    const inits = [
+      withAuth("Bearer wrong-secret-0123456789"),
+      withAuth(`Basic ${SECRET}`),
+      withAuth(SECRET),
+      legacyRequest("ping"),
+    ];
+    for (const init of inits) {
+      const res = await t.fetch("/mcp", init);
+      expect(res.status).toBe(404);
+      expect(res.headers.get("www-authenticate")).toBeNull();
+      expect(await res.text()).toBe("Not found");
+    }
+  });
+
+  test("a bearer token never works with a too short CONNECTOR_SECRET", async () => {
+    const t = setup({ CONNECTOR_SECRET: "short" });
+    expect((await t.fetch("/mcp", withAuth("Bearer short"))).status).toBe(404);
+  });
+
+  test("with both credentials either valid one authorizes", async () => {
+    const t = setup();
+    expect((await post(t, withAuth("Bearer wrong-secret-0123456789"))).status).toBe(200);
+    expect((await post(t, withAuth(`Bearer ${SECRET}`), "/mcp/wrong-secret-0123456789")).status).toBe(200);
+  });
+
+  test("GET and DELETE at /mcp answer 405 with the token and 404 without it", async () => {
+    const t = setup();
+    for (const method of ["GET", "DELETE"]) {
+      expect((await t.fetch("/mcp", withAuth(`Bearer ${SECRET}`, { method }))).status).toBe(405);
+      expect((await t.fetch("/mcp", { method })).status).toBe(404);
+    }
+  });
+
+  test("a CORS preflight at /mcp gets 204 and allows the Authorization header", async () => {
+    const t = setup();
+    const res = await t.fetch("/mcp", { method: "OPTIONS" });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-headers")).toContain("Authorization");
+  });
+});
+
 describe("legacy handshake (2025-11-25 and earlier)", () => {
   test("initialize echoes a supported legacy version and describes the server", async () => {
     const t = setup();

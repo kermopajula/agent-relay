@@ -84,6 +84,27 @@ describe("calls table", () => {
   });
 });
 
+describe("auth method", () => {
+  test("records bearer or path per call and never logs the secret", async () => {
+    const t = setup();
+    const bearer = legacyRequest("ping", undefined, { Authorization: `Bearer ${SECRET}` });
+    await post(t, bearer, "/mcp");
+    vi.setSystemTime(START + 1000);
+    await post(t, legacyRequest("tools/list"));
+
+    const json = await (await t.fetch(`/log/${SECRET}`)).text();
+    const body = JSON.parse(json);
+    expect(body.calls.map((c: { rpcMethod: string; auth: string }) => [c.rpcMethod, c.auth])).toEqual([
+      ["tools/list", "path"],
+      ["ping", "bearer"],
+    ]);
+    const text = await (await t.fetch(`/log/${SECRET}?format=text`)).text();
+    expect(text).toContain('user agent "spike-test/1.0": no clientInfo, auth bearer, path');
+    expect(json).not.toContain(SECRET);
+    expect(text).not.toContain(SECRET);
+  });
+});
+
 describe("/log endpoint", () => {
   test("needs the secret", async () => {
     const t = setup();

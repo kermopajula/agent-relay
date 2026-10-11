@@ -16,7 +16,7 @@ This project is not affiliated with xAI or Anthropic.
 
 One Convex deployment hosts everything:
 
-- `POST /mcp/<SECRET>`: a minimal MCP server (Streamable HTTP, JSON responses, no streaming, no sessions). It answers the `initialize` handshake of protocol versions 2025-03-26, 2025-06-18 and 2025-11-25, and the per-request metadata of 2026-07-28.
+- `POST /mcp` with the header `Authorization: Bearer <SECRET>` (or `POST /mcp/<SECRET>`): a minimal MCP server (Streamable HTTP, JSON responses, no streaming, no sessions). It answers the `initialize` handshake of protocol versions 2025-03-26, 2025-06-18 and 2025-11-25, and the per-request metadata of 2026-07-28.
 - `GET /log/<SECRET>`: every logged request plus a per-task summary.
 
 Tools:
@@ -50,7 +50,8 @@ Find the HTTP URL: `npx convex dashboard --prod`, then Settings, then "HTTP Acti
 Check it works (expect `{"jsonrpc":"2.0","id":1,"result":{}}`):
 
 ```sh
-curl -X POST https://<deployment>.convex.site/mcp/<SECRET> \
+curl -X POST https://<deployment>.convex.site/mcp \
+  -H "Authorization: Bearer <SECRET>" \
   -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"ping"}'
 ```
 
@@ -59,18 +60,26 @@ Optional settings, each with `npx convex env set NAME value --prod`:
 - `WAIT_SECONDS`: how long one `wait_for_task` call holds. Default 50, range 0 to 120. Lower it if Grok reports tool timeouts.
 - `ALLOWED_ORIGINS`: comma-separated list. When set, a request with any other `Origin` header gets 403. Unset by default, because we do not know what Grok sends.
 
-## Why the secret is in the URL
+## How the secret is sent
 
-We do not yet know which auth methods Grok custom connectors support. A long random secret in the path works with any client and does not start an OAuth flow. A wrong or missing secret gets a plain 404, so the endpoint does not reveal itself.
+Send the secret as a bearer token: `Authorization: Bearer <SECRET>` on `POST /mcp`. The scheme name is not case-sensitive. Grok shows this field masked, while it stores the connector URL in plain text.
 
-The trade-off: anyone who sees the URL can use the connector. The URL may appear in xAI's systems, in proxy logs and in Convex request logs. This is acceptable only because the tools are fake and hold no data. The real relay needs proper auth (OAuth or a bearer token). To revoke access, set a new `CONNECTOR_SECRET`.
+The older form, the secret in the path (`POST /mcp/<SECRET>`), still works for clients that cannot send a header. The trade-off: anyone who sees the URL can use the connector, and the URL may appear in the client's settings, in proxy logs and in Convex request logs.
+
+If a request carries both, it is accepted when either one is valid. A wrong or missing secret gets a plain 404, never a 401, so the endpoint does not reveal itself and clients do not start an OAuth flow, which this server does not support. The `/log` JSON records which method each request used (`auth`: `bearer` or `path`), never the secret itself.
+
+`GET /log/<SECRET>` keeps the secret in the path, so a browser can open it.
+
+A shared secret is acceptable here only because the tools are fake and hold no data. The real relay needs proper auth. To revoke access, set a new `CONNECTOR_SECRET`.
 
 ## Add the connector in Grok
 
 1. Open grok.com/connectors.
 2. Choose New Connector, then Custom.
-3. Enter the URL `https://<deployment>.convex.site/mcp/<SECRET>`.
-4. Choose no authentication if Grok asks.
+3. Enter the URL `https://<deployment>.convex.site/mcp`.
+4. For authentication, choose header or bearer token, and paste the secret into the masked field. If Grok asks for the full header value, enter `Bearer <SECRET>`.
+
+If your client offers no header authentication, use the URL `https://<deployment>.convex.site/mcp/<SECRET>` with no authentication instead, and accept that the secret is stored in plain text.
 
 Write down whether Grok accepted it and any error text. Open `/log/<SECRET>` straight away: an `initialize` and a `tools/list` request should appear.
 
@@ -91,7 +100,7 @@ If Grok stops on its own, you can ask "Is my Claude task done?" to test `task_st
 
 For each task the summary shows when it was created, every `wait_for_task` and `task_status` call, the gap since the previous reply, how long each call was held, the last call, and whether Grok ever received the final result. "Final result delivered to Grok: NO" with "stopped checking after X" is the answer to question 3.
 
-The "Clients seen" block shows the client name, protocol version and user agent Grok reported.
+The "Clients seen" block shows the client name, protocol version and user agent Grok reported, and which auth method it used.
 
 ## What to write down
 

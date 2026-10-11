@@ -18,6 +18,7 @@ export type SummaryCall = {
   clientVersion?: string;
   userAgent?: string;
   finalDelivered?: boolean;
+  auth?: "bearer" | "path";
 };
 
 export function formatTime(ms: number, timeZone: string): string {
@@ -96,19 +97,21 @@ export function summarizeTask(task: SummaryTask, calls: SummaryCall[], now: numb
 
 /** One line per user agent, with any client name and protocol it reported. */
 export function summarizeClients(calls: SummaryCall[]): string {
-  const byAgent = new Map<string, { clients: Set<string>; protocols: Set<string> }>();
+  const byAgent = new Map<string, { clients: Set<string>; protocols: Set<string>; auths: Set<string> }>();
   for (const call of calls) {
     const agent = call.userAgent ?? "no user agent";
-    const entry = byAgent.get(agent) ?? { clients: new Set(), protocols: new Set() };
+    const entry = byAgent.get(agent) ?? { clients: new Set(), protocols: new Set(), auths: new Set() };
+    if (call.auth) entry.auths.add(call.auth);
     if (call.clientName) entry.clients.add(`${call.clientName} ${call.clientVersion ?? ""}`.trim());
     if (call.protocolVersion) entry.protocols.add(call.protocolVersion);
     byAgent.set(agent, entry);
   }
   if (byAgent.size === 0) return "Clients seen: none yet.";
-  const lines = [...byAgent].map(([agent, { clients, protocols }]) => {
+  const lines = [...byAgent].map(([agent, { clients, protocols, auths }]) => {
     const client = clients.size ? `client ${[...clients].join(", ")}` : "no clientInfo";
     const protocol = protocols.size ? `, protocol ${[...protocols].join(", ")}` : "";
-    return `  user agent "${agent}": ${client}${protocol}`;
+    const auth = auths.size ? `, auth ${[...auths].sort().join(", ")}` : "";
+    return `  user agent "${agent}": ${client}${protocol}${auth}`;
   });
   return ["Clients seen:", ...lines].join("\n");
 }

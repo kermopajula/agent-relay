@@ -34,5 +34,6 @@ export default defineSchema({
     origin: v.optional(v.string()),
     taskId: v.optional(v.id("tasks")),
     finalDelivered: v.optional(v.boolean()),
+    auth: v.optional(v.union(v.literal("bearer"), v.literal("path"))),
   }).index("by_taskId", ["taskId"]),
 });

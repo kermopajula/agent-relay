@@ -22,7 +22,7 @@ import {
   type Params,
   type RpcId,
 } from "./lib/protocol";
-import { isAuthorized } from "./lib/secret";
+import { authMethod, secretFromPath, type AuthMethod } from "./lib/secret";
 import { isToolName, serverInstructions, toolDefinitions } from "./lib/toolDefinitions";
 import { runTool } from "./toolRunner";
 
@@ -37,14 +37,25 @@ type CallLog = {
   finalDelivered?: boolean;
 } & ClientDetails;
 
+type Gate = { blocked: Response; auth?: undefined } | { blocked?: undefined; auth: AuthMethod };
+
 type Outcome = { response: Response; log: CallLog };
 
 const CAPABILITIES = { tools: { listChanged: false } };
 
-async function record(ctx: ActionCtx, req: Request, started: number, status: number, log: CallLog) {
+async function record(
+  ctx: ActionCtx,
+  req: Request,
+  auth: AuthMethod,
+  started: number,
+  status: number,
+  log: CallLog,
+) {
   try {
+    // Only the method is stored, never the secret or the Authorization header.
     await ctx.runMutation(internal.calls.record, {
       ...log,
+      auth,
       at: started,
       durationMs: Date.now() - started,
       httpMethod: req.method,
@@ -58,14 +69,19 @@ async function record(ctx: ActionCtx, req: Request, started: number, status: num
   }
 }
 
-/** Shared gate for every MCP route: wrong secret looks like a missing page. */
-async function gate(req: Request): Promise<Response | null> {
+/**
+ * Shared gate for every MCP route: wrong secret looks like a missing page.
+ * It answers 404, never 401: a 401 with WWW-Authenticate can make MCP clients
+ * start OAuth discovery, which this server does not support.
+ */
+async function gate(req: Request): Promise<Gate> {
   const { pathname } = new URL(req.url);
-  if (!(await isAuthorized(pathname, "mcp", env.CONNECTOR_SECRET))) return notFound();
+  const auth = await authMethod(pathname, "mcp", req.headers.get("authorization"), env.CONNECTOR_SECRET);
+  if (auth === null) return { blocked: notFound() };
   if (!originAllowed(req.headers.get("origin"), env.ALLOWED_ORIGINS)) {
-    return json(403, rpcError(null, ERROR.invalidRequest, "Origin not allowed"));
+    return { blocked: json(403, rpcError(null, ERROR.invalidRequest, "Origin not allowed")) };
   }
-  return null;
+  return { auth };
 }
 
 async function callTool(ctx: ActionCtx, id: RpcId, era: Era, params: Params, base: CallLog): Promise<Outcome> {
@@ -163,7 +179,7 @@ async function handleRequest(
 }
 
 export async function handlePost(ctx: ActionCtx, req: Request): Promise<Response> {
-  const blocked = await gate(req);
+  const { blocked, auth } = await gate(req);
   if (blocked) return blocked;
   const started = Date.now();
 
@@ -172,7 +188,7 @@ export async function handlePost(ctx: ActionCtx, req: Request): Promise<Response
     body = JSON.parse(await req.text());
   } catch {
     const response = json(400, rpcError(null, ERROR.parse, "Parse error"));
-    await record(ctx, req, started, 400, { era: "none", responseSummary: "parse error" });
+    await record(ctx, req, auth, started, 400, { era: "none", responseSummary: "parse error" });
     return response;
   }
 
@@ -203,20 +219,23 @@ export async function handlePost(ctx: ActionCtx, req: Request): Promise<Response
       outcome = await handleRequest(ctx, req, message.id, message.method, message.params);
       break;
   }
-  await record(ctx, req, started, outcome.response.status, outcome.log);
+  await record(ctx, req, auth, started, outcome.response.status, outcome.log);
   return outcome.response;
 }
 
 /** GET (legacy SSE stream) and DELETE (legacy session end) are not offered. */
 export async function handleNotAllowed(ctx: ActionCtx, req: Request): Promise<Response> {
-  const blocked = await gate(req);
+  const { blocked, auth } = await gate(req);
   if (blocked) return blocked;
   const started = Date.now();
-  await record(ctx, req, started, 405, { era: "none", responseSummary: `${req.method} not allowed` });
+  await record(ctx, req, auth, started, 405, { era: "none", responseSummary: `${req.method} not allowed` });
   return empty(405, { Allow: "POST, OPTIONS" });
 }
 
 export async function handleOptions(req: Request): Promise<Response> {
-  const blocked = await gate(req);
+  // A browser preflight never carries the Authorization header, so the bare
+  // header-auth path answers it without a credential. It reveals nothing else.
+  if (secretFromPath(new URL(req.url).pathname, "mcp") === null) return empty(204);
+  const { blocked } = await gate(req);
   return blocked ?? empty(204);
 }

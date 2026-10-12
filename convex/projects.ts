@@ -109,7 +109,7 @@ export const add = internalAction({
     const name = args.name.trim();
     if (!isSlug(name)) {
       throw new ConvexError(
-        `name must be a lowercase slug of up to ${MAX_SLUG_LENGTH} characters, such as "begin-bugs".`,
+        `name must be a lowercase slug of up to ${MAX_SLUG_LENGTH} characters, such as "legacy-monolith".`,
       );
     }
     const displayName = cleanText(args.displayName ?? displayNameFromSlug(name), "displayName");

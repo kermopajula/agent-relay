@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 async function sendOne(t: TestConvex, request = "fix the login crash") {
-  await addProject(t, api, "begin-mobile");
+  await addProject(t, api, "legacy-monolith");
   await callTool(t, "send_task", { request });
   const [task] = await allTasks(t);
   if (!task) throw new Error("no task");
@@ -43,7 +43,7 @@ async function patchTask(t: TestConvex, task: Doc<"tasks">, fields: Partial<Doc<
   await t.run((ctx) => ctx.db.patch("tasks", task._id, fields));
 }
 
-const SENT = "new Begin Mobile task, sent 10:00";
+const SENT = "new Legacy Monolith task, sent 10:00";
 
 describe("wait_for_task", () => {
   test("polls every two seconds for WAIT_SECONDS, then says it is still running", async () => {
@@ -51,7 +51,7 @@ describe("wait_for_task", () => {
     await sendOne(t);
     const result = await callTool(t, "wait_for_task", { name: SENT });
     expect(result.text).toBe(
-      `${SENT} is sent. Begin Mobile has not checked in yet.\n` +
+      `${SENT} is sent to Legacy Monolith. Claude has not checked in yet.\n` +
         `(For the assistant: call wait_for_task again with name "${SENT}" to keep waiting.)`,
     );
     expect(sleeps).toHaveLength(25);
@@ -74,7 +74,7 @@ describe("wait_for_task", () => {
     };
     const result = await callTool(t, "wait_for_task", { name: SENT });
     expect(result.text).toBe(
-      "Begin Mobile finished Fix login crash. Fixed the login crash. Draft PR 412 is ready.\n" +
+      "Claude finished Fix login crash in Legacy Monolith. Fixed the login crash. Draft PR 412 is ready.\n" +
         "Pull request: https://github.com/acme/app/pull/412",
     );
     expect(sleeps).toEqual([2_000, 2_000, 2_000]);
@@ -90,7 +90,7 @@ describe("wait_for_task", () => {
       question: "Publish 2.4.0 to the App Store now?",
     });
     const result = await callTool(t, "wait_for_task", { name: "release" });
-    expect(result.text).toContain("Begin Mobile needs your answer on Release 2.4.0. Publish 2.4.0 to the App Store now?");
+    expect(result.text).toContain("Claude needs your answer on Release 2.4.0 in Legacy Monolith. Publish 2.4.0 to the App Store now?");
     expect(result.text).toContain('call send_task with follow_up_of "Release 2.4.0"');
     expect(sleeps).toEqual([]);
   });
@@ -106,7 +106,7 @@ describe("wait_for_task", () => {
 
   test("a failed fire is final at once", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     api.failNext(429);
     await callTool(t, "send_task", { request: "sweep" });
     const result = await callTool(t, "wait_for_task", { name: "last" });
@@ -128,12 +128,12 @@ describe("task_status and list_tasks", () => {
     const t = setup();
     const task = await sendOne(t);
     expect((await callTool(t, "task_status", { name: "last" })).text).toBe(
-      `${SENT} is sent. Begin Mobile has not checked in yet.`,
+      `${SENT} is sent to Legacy Monolith. Claude has not checked in yet.`,
     );
     await patchTask(t, task, { name: "Fix login crash", status: "failed", summary: "The tests do not build" });
     vi.setSystemTime(START + 60_000);
     expect((await callTool(t, "task_status", { name: "last" })).text).toBe(
-      `Begin Mobile could not finish Fix login crash. The tests do not build.\nSession link: ${task.sessionUrl}`,
+      `Claude could not finish Fix login crash in Legacy Monolith. The tests do not build.\nSession link: ${task.sessionUrl}`,
     );
     expect((await allTasks(t))[0]?.deliveredAt).toBe(START + 60_000);
     expect(sleeps).toEqual([]);
@@ -141,21 +141,21 @@ describe("task_status and list_tasks", () => {
 
   test("list_tasks reads one line per task, newest first, optionally for one project", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-mainframes");
+    await addProject(t, api, "legacy-monolith");
     await callTool(t, "send_task", { request: "sweep" });
     vi.setSystemTime(START + 60_000);
-    await callTool(t, "send_task", { request: "fix it", project: "mobile" });
-    const [, mobile] = await allTasks(t);
-    await patchTask(t, mobile!, { name: "Fix login crash", status: "running" });
+    await callTool(t, "send_task", { request: "fix it", project: "monolith" });
+    const [, monolith] = await allTasks(t);
+    await patchTask(t, monolith!, { name: "Fix login crash", status: "running" });
 
     expect((await callTool(t, "list_tasks")).text).toBe(
-      "Fix login crash (Begin Mobile): running.\nnew Begin Bugs task, sent 10:00 (Begin Bugs): sent, no report yet.",
+      "Fix login crash (Legacy Monolith): running.\nnew Legacy Mainframes task, sent 10:00 (Legacy Mainframes): sent, no report yet.",
     );
-    expect((await callTool(t, "list_tasks", { project: "bugs" })).text).toBe(
-      "new Begin Bugs task, sent 10:00 (Begin Bugs): sent, no report yet.",
+    expect((await callTool(t, "list_tasks", { project: "mainframes" })).text).toBe(
+      "new Legacy Mainframes task, sent 10:00 (Legacy Mainframes): sent, no report yet.",
     );
-    expect((await callTool(t, "list_tasks", { project: "begin" })).text).toContain("could mean Begin Bugs or Begin Mobile");
+    expect((await callTool(t, "list_tasks", { project: "legacy" })).text).toContain("could mean Legacy Mainframes or Legacy Monolith");
   });
 
   test("list_tasks with no tasks says so", async () => {

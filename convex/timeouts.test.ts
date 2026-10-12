@@ -6,7 +6,7 @@ import { clock } from "./toolRunner";
 const START = new Date("2026-10-11T10:00:00Z").getTime();
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
-const SENT = "new Begin Mobile task, sent 10:00";
+const SENT = "new Legacy Monolith task, sent 10:00";
 let api: FakeRoutineApi;
 
 beforeEach(() => {
@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 async function send(t: TestConvex) {
-  await addProject(t, api, "begin-mobile");
+  await addProject(t, api, "legacy-monolith");
   await callTool(t, "send_task", { request: "fix the login crash" });
   const text = api.fires[0]?.text ?? "";
   return { path: reportUrlFrom(text).slice(SITE_URL.length), secret: secretFrom(text) };
@@ -122,7 +122,7 @@ describe("timed out", () => {
     expect(task).toMatchObject({ status: "done", name: "Fix login crash" });
     expect(task?.deliveredAt).toBeUndefined();
     expect((await callTool(t, "wait_for_task", { name: "last" })).text).toBe(
-      "Begin Mobile finished Fix login crash. Fixed it.",
+      "Claude finished Fix login crash in Legacy Monolith. Fixed it.",
     );
   });
 
@@ -138,7 +138,7 @@ describe("timed out", () => {
 
   test("a failed fire schedules no timers", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     api.failNext(500);
     await callTool(t, "send_task", { request: "sweep" });
     const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());

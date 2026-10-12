@@ -1,16 +1,16 @@
 # agent-relay
 
-agent-relay is a small relay that you host on your own free Convex deployment. It lets a voice or chat assistant send requests to Claude Code in your repositories and read back what happened. You say "ask Begin to fix the login crash", the relay starts a fresh Claude Code session in that repository, Claude reports its progress back to the relay, and your assistant reads the result to you. It works with Grok Bot and with any MCP client that supports custom connectors, on one side, and with Claude Code routines on the other. One deployment serves one owner.
+agent-relay is a small relay that you host on your own free Convex deployment. It lets a voice or chat assistant send requests to Claude Code in your repositories and read back what happened. You say "ask Claude to fix the login crash in Legacy Monolith", the relay starts a fresh Claude Code session in that repository, Claude reports its progress back to the relay, and your assistant reads the result to you. It works with Grok Bot and with any MCP client that supports custom connectors, on one side, and with Claude Code routines on the other. One deployment serves one owner.
 
 An example:
 
-> **You:** Ask Begin to fix the login crash and tell me when it's done.
+> **You:** Ask Claude to fix the login crash in Legacy Monolith and tell me when it's done.
 >
-> **Grok:** Sent to Begin. I'll know its name in about a minute.
+> **Grok:** Claude is on it in Legacy Monolith. I'll know the task's name in about a minute.
 >
 > *(twelve minutes later)*
 >
-> **Grok:** Begin finished Fix login crash. Draft PR 412 is ready.
+> **Grok:** Claude finished Fix login crash in Legacy Monolith. Draft PR 412 is ready.
 
 agent-relay is not affiliated with xAI or Anthropic.
 
@@ -30,7 +30,7 @@ agent-relay is not affiliated with xAI or Anthropic.
                                                             in your repository
 ```
 
-A project is one repository with one general-purpose "inbox" routine, for example "Begin" for one app and "Paidetennis" for another. The request text decides what happens: "start a new bug sweep", "fix the login crash" or "deploy the new version".
+A project is one repository with one general-purpose "inbox" routine, for example "Legacy Monolith" for one app and "Left Pad" for another. The request text decides what happens: "start a new bug sweep", "fix the login crash" or "deploy the new version".
 
 ## Requirements
 
@@ -89,7 +89,7 @@ Create the routine in the Claude desktop app:
 
 1. In the sidebar, open **More**, then **Routines**.
 2. Choose **New routine**, then **Cloud**.
-3. Name it after the project, for example "Begin".
+3. Name it after the project, for example "Legacy Monolith".
 4. **Paste the prompt.** Use the text in [docs/inbox-routine-prompt.md](docs/inbox-routine-prompt.md). It tells Claude to act on the request in the payload, to report back, and to ask before anything hard to undo.
 5. **Pick the repository** the project works on, and the shared environment.
 6. Under **Select a trigger**, choose **Call via API**.
@@ -100,9 +100,9 @@ Then add the project to the relay:
 
 ```sh
 npx convex run projects:add '{
-  "name": "begin",
-  "displayName": "Begin",
-  "aliases": ["begin bugs", "the app"],
+  "name": "legacy-monolith",
+  "displayName": "Legacy Monolith",
+  "aliases": ["the monolith", "legacy"],
   "fireUrl": "https://api.anthropic.com/v1/claude_code/routines/trig_.../fire",
   "token": "sk-ant-oat01-..."
 }' --prod
@@ -115,10 +115,10 @@ Other project commands, each with `--prod`:
 | Command | What it does |
 | --- | --- |
 | `npx convex run projects:list` | Lists projects. Tokens are never shown. |
-| `npx convex run projects:setDefault '{"name":"begin"}'` | Makes a project the default. |
-| `npx convex run projects:update '{"name":"begin","aliases":["begin bugs","the app"]}'` | Changes the display name, aliases or fire URL. The token stays. |
-| `npx convex run projects:rotateToken '{"name":"begin","token":"sk-ant-oat01-..."}'` | Stores a new token. |
-| `npx convex run projects:remove '{"name":"begin"}'` | Removes a project. Its past tasks stay in the log. |
+| `npx convex run projects:setDefault '{"name":"legacy-monolith"}'` | Makes a project the default. |
+| `npx convex run projects:update '{"name":"legacy-monolith","aliases":["the monolith","legacy"]}'` | Changes the display name, aliases or fire URL. The token stays. |
+| `npx convex run projects:rotateToken '{"name":"legacy-monolith","token":"sk-ant-oat01-..."}'` | Stores a new token. |
+| `npx convex run projects:remove '{"name":"legacy-monolith"}'` | Removes a project. Its past tasks stay in the log. |
 
 These functions are internal: only someone with your Convex deploy access can call them.
 
@@ -135,17 +135,19 @@ Other MCP clients: add a Streamable HTTP server at `https://<deployment>.convex.
 
 ## Using it
 
+Name the connector "Claude" when you add it, and start with "ask Claude to ...". That helps the assistant pick the connector.
+
 Things you can say:
 
-- "Ask Begin to start a new bug sweep."
-- "Ask Paidetennis to fix the login crash and tell me when it's done."
-- "Tell the bugs project to look at yesterday's crash reports." (a loose project name works)
+- "Ask Claude to start a new bug sweep in Legacy Monolith."
+- "Ask Claude to add a test to Left Pad and tell me when it's done."
+- "Tell Claude to look at yesterday's crash reports in the monolith." (a loose project name works)
 - "Is the login crash task done?"
-- "What are my Begin tasks?"
+- "What are my Left Pad tasks?"
 - "Which projects do I have?"
 - When Claude asks first, for example "Deploy version 2.4.0 to production now?": "Yes, go ahead." The assistant sends this as a follow-up of the earlier task, so the new session continues the same work.
 
-Until Claude names a task, it is called "new Begin task, sent 10:05". That name keeps working after Claude renames it. Duplicate names get " (2)", " (3)" and so on.
+Until Claude names a task, it is called "new Legacy Monolith task, sent 10:05". That name keeps working after Claude renames it. Duplicate names get " (2)", " (3)" and so on.
 
 | Tool | What it does |
 | --- | --- |
@@ -167,10 +169,10 @@ Until Claude names a task, it is called "new Begin task, sent 10:05". That name 
 ## Troubleshooting
 
 - **"Claude hasn't checked in yet."** No report arrived within 15 minutes of the start. Open the session link. The usual cause is that `<deployment>.convex.site` is missing from the allowed domains of the shared environment, so Claude's curl requests are blocked.
-- **"The token for Begin was rejected."** The routine API answered 401. Create a new token on the routine's API trigger and store it with `projects:rotateToken`.
+- **"The token for Legacy Monolith was rejected."** The routine API answered 401. Create a new token on the routine's API trigger and store it with `projects:rotateToken`.
 - **"Rate limited by Anthropic; try again later."** The routine API answered 429. Each routine accepts 30 API starts per hour, and each account 100.
 - **The assistant stops waiting or reports a tool timeout.** Lower `WAIT_SECONDS`, for example to 25, so each `wait_for_task` call returns sooner.
-- **Reading the log.** Open `https://<deployment>.convex.site/log/<CONNECTOR_SECRET>?format=text&tz=Europe/Tallinn`. For each task it shows the project, the request, the status history with times, every report, every assistant call with the gap since the previous one, and whether the final result reached the assistant. Without `format=text` you get the same data as JSON, newest first, with the last 500 requests. Grok connects through mcp-remote, so in the log it shows up as the client "Cursor (via mcp-remote)" with user agent `undici`, next to a probe called `mcp-remote-fallback-test`.
+- **Reading the log.** Open `https://<deployment>.convex.site/log/<CONNECTOR_SECRET>?format=text&tz=Europe/Berlin`. For each task it shows the project, the request, the status history with times, every report, every assistant call with the gap since the previous one, and whether the final result reached the assistant. Without `format=text` you get the same data as JSON, newest first, with the last 500 requests. Grok connects through mcp-remote, so in the log it shows up as the client "Cursor (via mcp-remote)" with user agent `undici`, next to a probe called `mcp-remote-fallback-test`.
 
 ## Configuration
 
@@ -182,7 +184,7 @@ Set each value with `npx convex env set NAME value --prod`.
 | `TOKEN_ENCRYPTION_KEY` | none, required | 32 random bytes in base64 (`openssl rand -base64 32`). Encrypts routine tokens. |
 | `WAIT_SECONDS` | 50 | How long one `wait_for_task` call holds, from 0 to 120. |
 | `TASK_TIMEOUT_HOURS` | 6 | Hours without a final report before a task counts as timed out. A late report still counts. |
-| `DISPLAY_TIMEZONE` | UTC | Time zone for task names and spoken times, for example `Europe/Tallinn`. Also the log's default. |
+| `DISPLAY_TIMEZONE` | UTC | Time zone for task names and spoken times, for example `Europe/Berlin`. Also the log's default. |
 | `ALLOWED_ORIGINS` | unset | A comma-separated list. When set, an MCP request with any other `Origin` header gets 403. |
 
 ## Limits

@@ -64,8 +64,8 @@ function decide<T>(found: T[]): ProjectMatch<T> | null {
 }
 
 /**
- * Picks a project from a spoken name such as "bugs", "the bug project" or
- * "Begin Mobile". An empty name, or one made only of filler words, picks the
+ * Picks a project from a spoken name such as "monolith", "the monolith project" or
+ * "Legacy Monolith". An empty name, or one made only of filler words, picks the
  * default. Order: exact name or alias, all words present, all words as prefixes.
  */
 export function matchProject<T extends MatchableProject>(projects: T[], rawName: string | undefined): ProjectMatch<T> {

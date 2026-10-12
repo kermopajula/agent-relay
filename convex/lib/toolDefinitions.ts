@@ -14,13 +14,14 @@ const nameArgument = {
 const projectArgument = {
   type: "string",
   description:
-    'The project as the user said it, for example "Begin Mobile", "bugs" or "the bug project". Leave it out to use the default project.',
+    'The project where Claude should work, as the user said it, for example "Legacy Monolith", "the monolith" or "left pad". Leave it out to use the default project.',
 };
 
 export function serverInstructions(waitSeconds: number): string {
   return (
     "agent-relay sends the user's requests to their Claude Code projects and reports back what happened. " +
-    "Each project is a Claude Code routine that runs in the cloud and can take minutes or hours. " +
+    "Each project is a repository with a Claude Code routine. Claude does the work there, in the cloud, and it can take minutes or hours. " +
+    'The user may say "ask Claude to fix the login crash in Legacy Monolith": Claude does the work, and Legacy Monolith is the project where it happens. ' +
     "Use send_task to send a request. When the user asks to be told when it is done, call wait_for_task with the name " +
     `send_task returned. Each wait_for_task call waits up to about ${waitSeconds} seconds. ` +
     "Keep calling it until it returns a final result (done, failed, needs input or timed out), then read the result to the user. " +
@@ -35,8 +36,8 @@ export function toolDefinitions(waitSeconds: number) {
       name: "send_task",
       title: "Send a request to a Claude Code project",
       description:
-        "Send the user's request to one of their Claude Code projects, for example " +
-        '"start a new bug sweep", "fix the login crash" or "deploy the new version". ' +
+        "Send the user's request to Claude in one of their Claude Code projects, for example when the user says " +
+        '"ask Claude to fix the login crash in Legacy Monolith", "start a new bug sweep" or "deploy the new version". ' +
         "This starts a new Claude Code session in that project, and Claude does the work there. " +
         "Returns a short confirmation to read aloud, the task's name, and a session link. " +
         "IMPORTANT: if the user asked to be told when it is done, call wait_for_task with the returned name straight away, " +

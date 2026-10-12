@@ -74,7 +74,7 @@ describe("calls table", () => {
 
   test("records tool name, arguments, response, task and delivery", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
+    await addProject(t, api, "legacy-mainframes");
     await callTool(t, "send_task", { request: "start a new bug sweep" });
     await callTool(t, "wait_for_task", { name: "last" });
     const calls = await t.run((ctx) => ctx.db.query("calls").collect());
@@ -147,7 +147,7 @@ describe("/log endpoint", () => {
 
   test("text summary shows project, request, status history, waits with gaps and delivery", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     await callTool(t, "send_task", { request: "fix the login crash" }); // 10:00:00
     const [task] = await allTasks(t);
     vi.setSystemTime(START + 5_000);
@@ -163,21 +163,21 @@ describe("/log endpoint", () => {
     const res = await t.fetch(`/log/${SECRET}?format=text`);
     expect(res.headers.get("content-type")).toContain("text/plain");
     const text = await res.text();
-    expect(text).toContain("Fix login crash [begin-mobile]: done, sent 2026-10-11 10:00:00.");
+    expect(text).toContain("Fix login crash [legacy-monolith]: done, sent 2026-10-11 10:00:00.");
     expect(text).toContain('Request: "fix the login crash"');
     expect(text).toContain("Session: https://claude.ai/code/session_01TEST");
     expect(text).toMatch(/2026-10-11 10:00:00 {2}sent {12}relay: routine fired/);
     expect(text).toMatch(/2026-10-11 10:01:30 {2}done {12}report/);
     expect(text).toContain("Assistant calls: 3 (wait_for_task 2, task_status 0)");
     expect(text).toMatch(/10:00:05 {2}wait_for_task {2}gap {6}5s {2}held {5}50s/);
-    expect(text).toMatch(/10:01:35 {2}wait_for_task {2}gap {5}40s {2}held {6}0s {2}Begin Mobile finished Fix login crash/);
+    expect(text).toMatch(/10:01:35 {2}wait_for_task {2}gap {5}40s {2}held {6}0s {2}Claude finished Fix login crash in Legacy Monolith/);
     expect(text).toContain("Delivered to assistant: yes, at 2026-10-11 10:01:35, 1m 35s after sending.");
     expect(text).toContain('Clients seen:\n  user agent "relay-test/1.0": no clientInfo');
   });
 
   test("text summary says when the assistant stopped checking before the final status", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     await callTool(t, "send_task", { request: "fix the login crash" });
     const [task] = await allTasks(t);
     vi.setSystemTime(START + 5 * MINUTE);
@@ -185,7 +185,7 @@ describe("/log endpoint", () => {
     await t.run((ctx) => ctx.db.patch("tasks", task!._id, { status: "done", finalAt: START + 30 * MINUTE }));
     vi.setSystemTime(START + 40 * MINUTE);
 
-    const text = await (await t.fetch(`/log/${SECRET}?format=text&tz=Europe/Tallinn`)).text();
+    const text = await (await t.fetch(`/log/${SECRET}?format=text&tz=Europe/Helsinki`)).text();
     expect(text).toContain("sent 2026-10-11 13:00:00");
     expect(text).toContain(
       "Delivered to assistant: NO. The assistant stopped checking 5m 00s after sending, 25m 00s before the final status.",
@@ -194,14 +194,14 @@ describe("/log endpoint", () => {
 
   test("the log never contains a project token, a report secret or its hash", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     await callTool(t, "send_task", { request: "fix the login crash" });
     const secret = secretFrom(api.fires[0]?.text ?? "");
     const [task] = await allTasks(t);
     for (const path of [`/log/${SECRET}`, `/log/${SECRET}?format=text`]) {
       const body = await (await t.fetch(path)).text();
       expect(body).toContain("fix the login crash");
-      expect(body).not.toContain(tokenFor("begin-mobile"));
+      expect(body).not.toContain(tokenFor("legacy-monolith"));
       expect(body).not.toContain(secret);
       expect(body).not.toContain(task!.reportSecretHash);
       expect(body).not.toContain("reportSecretHash");

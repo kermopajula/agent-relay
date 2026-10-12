@@ -5,7 +5,7 @@ export function isSlug(name: string): boolean {
   return name.length <= MAX_SLUG_LENGTH && SLUG.test(name);
 }
 
-/** "begin-mobile" becomes "Begin Mobile". */
+/** "legacy-monolith" becomes "Legacy Monolith". */
 export function displayNameFromSlug(slug: string): string {
   return slug
     .split("-")

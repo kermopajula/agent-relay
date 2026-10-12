@@ -54,7 +54,7 @@ async function onlyTask(t: TestConvex) {
 describe("report auth", () => {
   test("the task's secret is accepted and the report is applied", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const sent = await send(t);
     vi.setSystemTime(START + 40_000);
 
@@ -63,7 +63,7 @@ describe("report auth", () => {
     expect(result).toEqual({ status: 200, body: { ok: true, name: "Fix login crash", status: "running" } });
     expect(await onlyTask(t)).toMatchObject({
       name: "Fix login crash",
-      sentName: "new Begin Mobile task, sent 10:00",
+      sentName: "new Legacy Monolith task, sent 10:00",
       nameReported: true,
       status: "running",
       lastReportAt: START + 40_000,
@@ -77,7 +77,7 @@ describe("report auth", () => {
 
   test("a wrong secret, another task's secret or no bearer answers 404 and changes nothing", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const first = await send(t, "one");
     const second = await send(t, "two");
     const body = JSON.stringify({ status: "done" });
@@ -98,7 +98,7 @@ describe("report auth", () => {
 
   test("an unknown or malformed task id answers 404", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const sent = await send(t);
     const otherTable = (await t.run((ctx) => ctx.db.query("projects").first()))!._id;
     for (const path of ["/report/not-an-id", `/report/${otherTable}`, `${sent.path}/extra`, "/report/"]) {
@@ -108,7 +108,7 @@ describe("report auth", () => {
 
   test("a bad body with the right secret is a 400, with a wrong secret a 404", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const sent = await send(t);
     const bad = await report(t, sent, { status: "done", secret: "x" });
     expect(bad.status).toBe(400);
@@ -131,7 +131,7 @@ describe("report validation", () => {
     ["an http PR link", { status: "done", pr_url: "http://github.com/a/b/pull/1" }, "pr_url must be an https URL."],
   ])("rejects %s with a clear message", async (_label, body, message) => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const sent = await send(t);
     const result = await report(t, sent, body);
     expect(result.status).toBe(400);
@@ -141,12 +141,12 @@ describe("report validation", () => {
 
   test("null and empty optional fields count as missing", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const sent = await send(t);
     const result = await report(t, sent, { status: "done", name: "", summary: "Done.", pr_url: null, branch: "  " });
     expect(result.status).toBe(200);
     const task = await onlyTask(t);
-    expect(task).toMatchObject({ status: "done", summary: "Done.", name: "new Begin Mobile task, sent 10:00" });
+    expect(task).toMatchObject({ status: "done", summary: "Done.", name: "new Legacy Monolith task, sent 10:00" });
     expect(task.prUrl).toBeUndefined();
     expect(task.branch).toBeUndefined();
   });
@@ -155,7 +155,7 @@ describe("report validation", () => {
 describe("report lifecycle", () => {
   test("sent, running, done; then 409 and the final result stays", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const sent = await send(t);
     expect((await report(t, sent, { status: "running", name: "Fix login crash" })).status).toBe(200);
     vi.setSystemTime(START + 10 * 60_000);
@@ -180,18 +180,18 @@ describe("report lifecycle", () => {
 
   test("needs_input is final for the task: a follow-up carries the answer", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const sent = await send(t, "release the new version");
     await report(t, sent, { status: "needs_input", name: "Release 2.4.0", question: "Publish 2.4.0 now?" });
     expect((await report(t, sent, { status: "running" })).status).toBe(409);
     const answer = await callTool(t, "send_task", { request: "yes, go ahead", follow_up_of: "Release 2.4.0" });
-    expect(answer.text).toContain("Sent to Begin Mobile.");
+    expect(answer.text).toContain("Claude is on it in Legacy Monolith.");
     expect(api.fires[1]?.text).toContain("Question you asked: Publish 2.4.0 now?");
   });
 
   test("the first reported name sticks and duplicates get a number", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const first = await send(t, "one");
     const second = await send(t, "two");
     await report(t, first, { status: "running", name: "Fix login crash" });
@@ -203,19 +203,19 @@ describe("report lifecycle", () => {
 
   test("wait_for_task hands back a report that arrives during the wait", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const sent = await send(t);
     onSleep = async (count) => {
       if (count === 1) await report(t, sent, { status: "running", name: "Fix login crash" });
       if (count === 4) await report(t, sent, { status: "done", summary: "Fixed it." });
     };
-    const result = await callTool(t, "wait_for_task", { name: "new Begin Mobile task, sent 10:00" });
-    expect(result.text).toBe("Begin Mobile finished Fix login crash. Fixed it.");
+    const result = await callTool(t, "wait_for_task", { name: "new Legacy Monolith task, sent 10:00" });
+    expect(result.text).toBe("Claude finished Fix login crash in Legacy Monolith. Fixed it.");
   });
 
   test("every report is logged with its body and never the secret", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
     const sent = await send(t);
     await report(t, sent, { status: "running", name: "Fix login crash" });
     await report(t, sent, { status: "running", name: "x".repeat(61) });

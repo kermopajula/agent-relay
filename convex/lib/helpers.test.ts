@@ -9,22 +9,22 @@ import { formatSpan } from "./summary";
 
 describe("matchTask", () => {
   const tasks = [
-    { name: "new Begin Mobile task, sent 10:05", sentName: "new Begin Mobile task, sent 10:05" },
-    { name: "Fix login crash", sentName: "new Begin Mobile task, sent 09:00" },
-    { name: "Bug sweep", sentName: "new Begin Bugs task, sent 08:00" },
+    { name: "new Legacy Monolith task, sent 10:05", sentName: "new Legacy Monolith task, sent 10:05" },
+    { name: "Fix login crash", sentName: "new Legacy Monolith task, sent 09:00" },
+    { name: "Bug sweep", sentName: "new Legacy Mainframes task, sent 08:00" },
   ];
   const pick = (name: string) => matchTask(tasks, name)?.name ?? null;
 
   test.each([
-    ["last", "new Begin Mobile task, sent 10:05"],
-    ["", "new Begin Mobile task, sent 10:05"],
-    ["the last task", "new Begin Mobile task, sent 10:05"],
+    ["last", "new Legacy Monolith task, sent 10:05"],
+    ["", "new Legacy Monolith task, sent 10:05"],
+    ["the last task", "new Legacy Monolith task, sent 10:05"],
     ["Fix login crash", "Fix login crash"],
     ["fix login", "Fix login crash"],
     ["login crash", "Fix login crash"],
     ["the login crash task", "Fix login crash"],
-    ["new Begin Mobile task, sent 09:00", "Fix login crash"],
-    ["the Begin Bugs task", "Bug sweep"],
+    ["new Legacy Monolith task, sent 09:00", "Fix login crash"],
+    ["the Legacy Mainframes task", "Bug sweep"],
     ["task 7", null],
     ["payroll", null],
   ])("%s -> %s", (name, expected) => {
@@ -60,10 +60,10 @@ describe("config", () => {
   });
 
   test("timeZoneOrUtc keeps a valid zone and falls back to UTC", () => {
-    expect([undefined, "", "Europe/Tallinn", "Mars/Olympus"].map(timeZoneOrUtc)).toEqual([
+    expect([undefined, "", "Europe/Helsinki", "Mars/Olympus"].map(timeZoneOrUtc)).toEqual([
       "UTC",
       "UTC",
-      "Europe/Tallinn",
+      "Europe/Helsinki",
       "UTC",
     ]);
   });
@@ -139,13 +139,13 @@ describe("parseFireUrl", () => {
 
 describe("names", () => {
   test("displayNameFromSlug title-cases each word", () => {
-    expect(displayNameFromSlug("begin-mobile")).toBe("Begin Mobile");
+    expect(displayNameFromSlug("legacy-monolith")).toBe("Legacy Monolith");
   });
 
   test("provisionalName uses the display time zone", () => {
     const at = new Date("2026-10-11T10:05:00Z").getTime();
-    expect(provisionalName("Begin Bugs", at, "UTC")).toBe("new Begin Bugs task, sent 10:05");
-    expect(provisionalName("Begin Bugs", at, "Europe/Tallinn")).toBe("new Begin Bugs task, sent 13:05");
+    expect(provisionalName("Legacy Mainframes", at, "UTC")).toBe("new Legacy Mainframes task, sent 10:05");
+    expect(provisionalName("Legacy Mainframes", at, "Europe/Helsinki")).toBe("new Legacy Mainframes task, sent 13:05");
   });
 
   test("dedupeName adds the first free number", () => {
@@ -157,8 +157,8 @@ describe("names", () => {
 
 describe("matchProject", () => {
   const projects = [
-    { name: "begin-bugs", displayName: "Begin Bugs", aliases: ["triage"], isDefault: true },
-    { name: "begin-mobile", displayName: "Begin Mobile", aliases: [], isDefault: false },
+    { name: "legacy-mainframes", displayName: "Legacy Mainframes", aliases: ["triage"], isDefault: true },
+    { name: "legacy-monolith", displayName: "Legacy Monolith", aliases: [], isDefault: false },
     { name: "eve", displayName: "Eve Agent", aliases: [], isDefault: false },
   ];
   const pick = (name: string | undefined) => {
@@ -167,31 +167,31 @@ describe("matchProject", () => {
   };
 
   test.each([
-    ["begin-mobile", "begin-mobile"],
-    ["Begin Mobile", "begin-mobile"],
-    ["bugs", "begin-bugs"],
-    ["the bug project", "begin-bugs"],
-    ["mobile", "begin-mobile"],
-    ["triage", "begin-bugs"],
+    ["legacy-monolith", "legacy-monolith"],
+    ["Legacy Monolith", "legacy-monolith"],
+    ["mainframes", "legacy-mainframes"],
+    ["the mainframe project", "legacy-mainframes"],
+    ["monolith", "legacy-monolith"],
+    ["triage", "legacy-mainframes"],
     ["eve", "eve"],
     ["the eve agent repo", "eve"],
-    ["mob", "begin-mobile"],
-    ["", "begin-bugs"],
-    [undefined, "begin-bugs"],
-    ["the project", "begin-bugs"],
-    ["begin", "ambiguous"],
+    ["mono", "legacy-monolith"],
+    ["", "legacy-mainframes"],
+    [undefined, "legacy-mainframes"],
+    ["the project", "legacy-mainframes"],
+    ["legacy", "ambiguous"],
     ["payroll", "unknown"],
   ])("%s -> %s", (name, expected) => {
     expect(pick(name)).toBe(expected);
   });
 
   test("ambiguity lists the candidates", () => {
-    const result = matchProject(projects, "begin");
-    expect(result.kind === "ambiguous" && result.candidates.map((p) => p.name)).toEqual(["begin-bugs", "begin-mobile"]);
+    const result = matchProject(projects, "legacy");
+    expect(result.kind === "ambiguous" && result.candidates.map((p) => p.name)).toEqual(["legacy-mainframes", "legacy-monolith"]);
   });
 
   test("no projects, and no default when no name is given", () => {
-    expect(matchProject([], "bugs").kind).toBe("no_projects");
+    expect(matchProject([], "mainframes").kind).toBe("no_projects");
     expect(matchProject([{ ...projects[1]!, isDefault: false }], "").kind).toBe("no_default");
   });
 });

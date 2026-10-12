@@ -41,7 +41,7 @@ function waitHint(name: string): string {
 
 export function sentText(task: TaskView): string {
   return (
-    `Sent to ${task.projectDisplayName}. I'll know its name in about a minute.` +
+    `Claude is on it in ${task.projectDisplayName}. I'll know the task's name in about a minute.` +
     sessionLine(task) +
     `\n(For the assistant: the task is called "${task.sentName}" until Claude names it; that name keeps working. ` +
     `If the user asked to be told when it is done, call wait_for_task with name "${task.sentName}" now, ` +
@@ -61,11 +61,11 @@ export function fireErrorText(
     case "rate_limited":
       return "Rate limited by Anthropic; try again later.";
     case "http_error":
-      return `${projectDisplayName} could not be started. The routine API answered with status ${status ?? "unknown"}.`;
+      return `Claude could not be started in ${projectDisplayName}. The routine API answered with status ${status ?? "unknown"}.`;
     case "network_error":
-      return `${projectDisplayName} could not be started. The routine API could not be reached.`;
+      return `Claude could not be started in ${projectDisplayName}. The routine API could not be reached.`;
     case "bad_response":
-      return `${projectDisplayName} could not be started. The routine API sent an answer I could not read.`;
+      return `Claude could not be started in ${projectDisplayName}. The routine API sent an answer I could not read.`;
     case "key_error":
       return (
         `The token for ${projectDisplayName} could not be decrypted. ` +
@@ -80,14 +80,14 @@ export function finalText(task: TaskView, timeoutHours: number): string {
   switch (task.status) {
     case "done": {
       const link = task.prUrl ? `\nPull request: ${task.prUrl}` : task.branch ? `\nBranch: ${task.branch}` : "";
-      return `${project} finished ${task.name}.${sentence(task.summary)}${link}`;
+      return `Claude finished ${task.name} in ${project}.${sentence(task.summary)}${link}`;
     }
     case "failed":
       if (task.error) return task.error;
-      return `${project} could not finish ${task.name}.${sentence(task.summary)}${sessionLine(task)}`;
+      return `Claude could not finish ${task.name} in ${project}.${sentence(task.summary)}${sessionLine(task)}`;
     case "needs_input":
       return (
-        `${project} needs your answer on ${task.name}.${sentence(task.question)}` +
+        `Claude needs your answer on ${task.name} in ${project}.${sentence(task.question)}` +
         `\n(For the assistant: read the question to the user. To answer it, call send_task with ` +
         `follow_up_of "${task.name}" and the user's answer as the request, for example "yes, go ahead".)`
       );
@@ -110,7 +110,7 @@ export function hoursWord(hours: number): string {
 export function progressText(task: TaskView, timeZone: string): string {
   switch (task.status) {
     case "sent":
-      return `${task.name} is sent. ${task.projectDisplayName} has not checked in yet.`;
+      return `${task.name} is sent to ${task.projectDisplayName}. Claude has not checked in yet.`;
     case "no_start_report":
       return `${task.name}: ${NO_START_REPORT}${sessionLine(task)}`;
     default: {

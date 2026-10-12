@@ -33,23 +33,23 @@ afterEach(() => {
 describe("send_task", () => {
   test("fires the project's routine and answers with the session link", async () => {
     const t = setup();
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-monolith");
 
-    const result = await callTool(t, "send_task", { request: "fix the login crash", project: "Begin Mobile" });
+    const result = await callTool(t, "send_task", { request: "fix the login crash", project: "Legacy Monolith" });
 
     expect(result.isError).toBe(false);
-    expect(result.text).toContain("Sent to Begin Mobile. I'll know its name in about a minute.");
+    expect(result.text).toContain("Claude is on it in Legacy Monolith. I'll know the task's name in about a minute.");
     expect(result.text).toContain(`Session link: https://claude.ai/code/${sessionId(1)}`);
-    expect(result.text).toContain('call wait_for_task with name "new Begin Mobile task, sent 10:05"');
+    expect(result.text).toContain('call wait_for_task with name "new Legacy Monolith task, sent 10:05"');
     expect(api.fires).toHaveLength(1);
-    expect(api.fires[0]).toMatchObject({ routineId: routineIdFor("begin-mobile"), token: tokenFor("begin-mobile") });
+    expect(api.fires[0]).toMatchObject({ routineId: routineIdFor("legacy-monolith"), token: tokenFor("legacy-monolith") });
 
     const [task] = await allTasks(t);
     expect(task).toMatchObject({
-      name: "new Begin Mobile task, sent 10:05",
+      name: "new Legacy Monolith task, sent 10:05",
       status: "sent",
       request: "fix the login crash",
-      projectName: "begin-mobile",
+      projectName: "legacy-monolith",
       sessionId: sessionId(1),
       sessionUrl: `https://claude.ai/code/${sessionId(1)}`,
       firedAt: START,
@@ -58,12 +58,12 @@ describe("send_task", () => {
 
   test("the payload carries the request, the report URL, the secret and curl examples", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
+    await addProject(t, api, "legacy-mainframes");
     await callTool(t, "send_task", { request: "start a new bug sweep" });
 
     const text = api.fires[0]?.text ?? "";
     const [task] = await allTasks(t);
-    expect(text).toContain("Request for the Begin Bugs project");
+    expect(text).toContain("Request for the Legacy Mainframes project");
     expect(text).toContain("start a new bug sweep");
     expect(reportUrlFrom(text)).toBe(`${SITE_URL}/report/${task?._id}`);
     const secret = secretFrom(text);
@@ -79,7 +79,7 @@ describe("send_task", () => {
 
   test("each task gets its own secret and only its hash is stored", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
+    await addProject(t, api, "legacy-mainframes");
     await callTool(t, "send_task", { request: "one" });
     await callTool(t, "send_task", { request: "two" });
     const [first, second] = api.fires.map((f) => secretFrom(f.text));
@@ -91,29 +91,29 @@ describe("send_task", () => {
 
   test("uses the default project when none is named and dedupes the provisional name", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
-    await addProject(t, api, "begin-mobile");
+    await addProject(t, api, "legacy-mainframes");
+    await addProject(t, api, "legacy-monolith");
     await callTool(t, "send_task", { request: "one" });
     const second = await callTool(t, "send_task", { request: "two" });
-    expect(second.text).toContain("Sent to Begin Bugs.");
+    expect(second.text).toContain("Claude is on it in Legacy Mainframes.");
     expect((await allTasks(t)).map((task) => task.name)).toEqual([
-      "new Begin Bugs task, sent 10:05",
-      "new Begin Bugs task, sent 10:05 (2)",
+      "new Legacy Mainframes task, sent 10:05",
+      "new Legacy Mainframes task, sent 10:05 (2)",
     ]);
   });
 
   test("shows send times in DISPLAY_TIMEZONE", async () => {
-    const t = setup({ DISPLAY_TIMEZONE: "Europe/Tallinn" });
-    await addProject(t, api, "begin-bugs");
+    const t = setup({ DISPLAY_TIMEZONE: "Europe/Helsinki" });
+    await addProject(t, api, "legacy-mainframes");
     const result = await callTool(t, "send_task", { request: "one" });
-    expect(result.text).toContain('"new Begin Bugs task, sent 13:05"');
+    expect(result.text).toContain('"new Legacy Mainframes task, sent 13:05"');
   });
 
   test("a follow-up carries the earlier task's request, status, question, PR and branch", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
-    await addProject(t, api, "begin-mobile");
-    await callTool(t, "send_task", { request: "release the new version", project: "mobile" });
+    await addProject(t, api, "legacy-mainframes");
+    await addProject(t, api, "legacy-monolith");
+    await callTool(t, "send_task", { request: "release the new version", project: "monolith" });
     const [earlier] = await allTasks(t);
     await t.run((ctx) =>
       ctx.db.patch("tasks", earlier!._id, {
@@ -129,7 +129,7 @@ describe("send_task", () => {
 
     const result = await callTool(t, "send_task", { request: "yes, go ahead", follow_up_of: "release 2.4.0" });
 
-    expect(result.text).toContain("Sent to Begin Mobile.");
+    expect(result.text).toContain("Claude is on it in Legacy Monolith.");
     const text = api.fires[1]?.text ?? "";
     expect(text).toContain("yes, go ahead");
     expect(text).toContain("Follow-up context");
@@ -141,14 +141,14 @@ describe("send_task", () => {
     expect(text).toContain("Pull request: https://github.com/acme/app/pull/412");
     expect(text).toContain("Branch: release/2.4.0");
     expect(text).toContain(`Earlier session: https://claude.ai/code/${sessionId(1)}`);
-    expect(api.fires[1]?.routineId).toBe(routineIdFor("begin-mobile"));
+    expect(api.fires[1]?.routineId).toBe(routineIdFor("legacy-monolith"));
     const tasks = await allTasks(t);
     expect(tasks[1]?.followUpOf).toBe(earlier?._id);
   });
 
   test("an unknown follow_up_of is a tool error and fires nothing", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
+    await addProject(t, api, "legacy-mainframes");
     const result = await callTool(t, "send_task", { request: "yes", follow_up_of: "release 9" });
     expect(result.isError).toBe(true);
     expect(result.text).toContain('I could not find a task called "release 9"');
@@ -157,14 +157,14 @@ describe("send_task", () => {
 
   test("a rejected token fails the task and says how to rotate it", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
-    api.allow(routineIdFor("begin-bugs"), "sk-ant-oat01-some-other-token");
+    await addProject(t, api, "legacy-mainframes");
+    api.allow(routineIdFor("legacy-mainframes"), "sk-ant-oat01-some-other-token");
 
     const result = await callTool(t, "send_task", { request: "sweep" });
 
     expect(result).toEqual({
       isError: true,
-      text: "The token for Begin Bugs was rejected. Rotate it with projects:rotateToken.",
+      text: "The token for Legacy Mainframes was rejected. Rotate it with projects:rotateToken.",
     });
     const [task] = await allTasks(t);
     expect(task).toMatchObject({ status: "failed", deliveredAt: START, finalAt: START });
@@ -173,11 +173,11 @@ describe("send_task", () => {
 
   test.each([
     [429 as const, "Rate limited by Anthropic; try again later."],
-    [500 as const, "Begin Bugs could not be started. The routine API answered with status 500."],
-    ["network" as const, "Begin Bugs could not be started. The routine API could not be reached."],
+    [500 as const, "Claude could not be started in Legacy Mainframes. The routine API answered with status 500."],
+    ["network" as const, "Claude could not be started in Legacy Mainframes. The routine API could not be reached."],
   ])("a fire that ends in %s fails the task", async (outcome, message) => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
+    await addProject(t, api, "legacy-mainframes");
     api.failNext(outcome);
     const result = await callTool(t, "send_task", { request: "sweep" });
     expect(result).toEqual({ isError: true, text: message });
@@ -186,7 +186,7 @@ describe("send_task", () => {
 
   test("an empty request is a tool error and creates nothing", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
+    await addProject(t, api, "legacy-mainframes");
     const result = await callTool(t, "send_task", { request: "  " });
     expect(result.isError).toBe(true);
     expect(await allTasks(t)).toHaveLength(0);
@@ -204,36 +204,36 @@ describe("choosing the project", () => {
 
   test("with no default and no project named it asks which one", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs", { makeDefault: false });
-    await addProject(t, api, "begin-mobile", { makeDefault: false });
+    await addProject(t, api, "legacy-mainframes", { makeDefault: false });
+    await addProject(t, api, "legacy-monolith", { makeDefault: false });
     const result = await callTool(t, "send_task", { request: "sweep" });
-    expect(result.text).toContain("Which project? There is no default project. Projects: Begin Bugs, Begin Mobile.");
+    expect(result.text).toContain("Which project? There is no default project. Projects: Legacy Mainframes, Legacy Monolith.");
     expect(await allTasks(t)).toHaveLength(0);
   });
 
   test("an ambiguous name lists the candidates so the assistant can ask", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
-    await addProject(t, api, "begin-mobile");
-    const result = await callTool(t, "send_task", { request: "sweep", project: "begin" });
+    await addProject(t, api, "legacy-mainframes");
+    await addProject(t, api, "legacy-monolith");
+    const result = await callTool(t, "send_task", { request: "sweep", project: "legacy" });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain('"begin" could mean Begin Bugs or Begin Mobile.');
+    expect(result.text).toContain('"legacy" could mean Legacy Mainframes or Legacy Monolith.');
     expect(result.text).toContain("ask the user which one");
     expect(api.fires).toHaveLength(0);
   });
 
   test("an unknown name lists the projects", async () => {
     const t = setup();
-    await addProject(t, api, "begin-bugs");
+    await addProject(t, api, "legacy-mainframes");
     const result = await callTool(t, "send_task", { request: "sweep", project: "payroll" });
-    expect(result.text).toBe('There is no project called "payroll". Projects: Begin Bugs (default).');
+    expect(result.text).toBe('There is no project called "payroll". Projects: Legacy Mainframes (default).');
   });
 
   test("list_projects marks the default", async () => {
     const t = setup();
     expect((await callTool(t, "list_projects")).text).toContain("No projects are set up yet.");
-    await addProject(t, api, "begin-bugs");
-    await addProject(t, api, "begin-mobile");
-    expect((await callTool(t, "list_projects")).text).toBe("Projects: Begin Bugs (default), Begin Mobile.");
+    await addProject(t, api, "legacy-mainframes");
+    await addProject(t, api, "legacy-monolith");
+    expect((await callTool(t, "list_projects")).text).toBe("Projects: Legacy Mainframes (default), Legacy Monolith.");
   });
 });
